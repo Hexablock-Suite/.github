@@ -10,10 +10,12 @@ corte_board_group, CORTE and lockup in ds-componentes/gen.py and ds-rombo/gen.py
 The engine figure and the game cards keep the geometry of the published files.
 Every piece of text is an SVG path from the shared helper textpath.py.
 
-Usage: python profile-assets/gen.py [--root <dir>]
+Usage: python profile-assets/gen.py [--root <dir>] [--repo <name>]
 Run it from brand/tools/ with a Python that has the packages in requirements.txt.
 By default the files go to profile/assets/ of this repository.
 With --root, they go to <dir>/profile/assets/ instead.
+With --repo, the script writes only the Corte banner of that repository README (S10),
+dark and light, into <dir>/docs/assets/. --repo needs --root, the checkout of that repository.
 The script prints every contrast gate. It writes no file when a gate fails.
 """
 import argparse
@@ -160,6 +162,17 @@ def svg_open(w, h, label):
 BANNER_LABEL = 'HexaBlock Suite: four hex puzzle games on one generic engine'
 TAGLINE = 'Four hex puzzle games on one generic engine'  # TAGLINE in both generators
 CORTE = dict(size=112, base=156, size2=44, base2=226, tag=26, R=36)  # CORTE in both generators
+# The repository READMEs use the same banner (S10). The second line names the repository part.
+# The tagline is the role before the colon in profile/README.md (lines 53 and 54).
+# The label quotes the full description of the same line.
+REPO_BANNERS = {
+    'hexablock-app': ('App', 'Mobile client',
+                      'HexaBlock App. Mobile client: the four games on one generic engine.'),
+    'hexablock-api': ('API', 'REST backend',
+                      'HexaBlock API. REST backend: users, progress, leaderboards and level definitions, '
+                      'with Drizzle and OpenAPI docs.'),
+}
+REPO_ASSETS = Path('docs') / 'assets'  # the banner folder inside a repository checkout
 BANNER_W, BANNER_H = 1280, 320
 # The field ends in a 60-degree cut over the full banner height (DESIGN.md Shapes, «Corte»).
 # The horizontal run of the cut is the field height / sqrt 3.
@@ -228,39 +241,39 @@ def corte_board(th):
     return ''.join(out)
 
 
-def lockup():
-    """HexaBlock on the first line; Suite and the tagline share the second line (lockup in both generators)."""
+def lockup(second='Suite', tagline=TAGLINE):
+    """HexaBlock on the first line; the second word and the tagline share the second line (lockup in both generators)."""
     k = CORTE
-    suite_w = text_width('Suite', 'Unbounded', 800, k['size2'])
+    second_w = text_width(second, 'Unbounded', 800, k['size2'])
     gap = k['size2'] * 0.5
-    tag_x = round(LOCKUP_X + 2 + suite_w + gap)
+    tag_x = round(LOCKUP_X + 2 + second_w + gap)
     return ''.join([
         text('HexaBlock', 'Unbounded', 800, k['size'], LOCKUP_X, k['base'], INK, letter_spacing=-1),
-        text('Suite', 'Unbounded', 800, k['size2'], LOCKUP_X + 2, k['base2'], INK),
-        text(TAGLINE, 'Archivo', 500, k['tag'], tag_x, k['base2'], INK),
+        text(second, 'Unbounded', 800, k['size2'], LOCKUP_X + 2, k['base2'], INK),
+        text(tagline, 'Archivo', 500, k['tag'], tag_x, k['base2'], INK),
     ])
 
 
-def banner(th):
-    return (svg_open(BANNER_W, BANNER_H, BANNER_LABEL) + corte_board(th) + '\n'
-            + polygon(FIELD, SIG) + '\n' + lockup() + '\n</svg>\n')
+def banner(th, second='Suite', tagline=TAGLINE, label=BANNER_LABEL):
+    return (svg_open(BANNER_W, BANNER_H, label) + corte_board(th) + '\n'
+            + polygon(FIELD, SIG) + '\n' + lockup(second, tagline) + '\n</svg>\n')
 
 
-def banner_gates():
+def banner_gates(second='Suite', tagline=TAGLINE, where='banner'):
     k = CORTE
-    text_gate('banner: title ink on cyan', INK, SIG, k['size'], True)
-    text_gate('banner: Suite ink on cyan', INK, SIG, k['size2'], True)
+    text_gate(f'{where}: title ink on cyan', INK, SIG, k['size'], True)
+    text_gate(f'{where}: {second} ink on cyan', INK, SIG, k['size2'], True)
     # The task holds the tagline to the normal-text floor, although 26 px counts as large text.
-    gate(f'banner: tagline ink on cyan ({k["tag"]} px, held to the text floor)', cr(INK, SIG), TEXT_MIN)
+    gate(f'{where}: tagline ink on cyan ({k["tag"]} px, held to the text floor)', cr(INK, SIG), TEXT_MIN)
     name_end = LOCKUP_X + text_width('HexaBlock', 'Unbounded', 800, k['size'], letter_spacing=-1)
-    tag_end = (LOCKUP_X + 2 + text_width('Suite', 'Unbounded', 800, k['size2']) + k['size2'] * 0.5
-               + text_width(TAGLINE, 'Archivo', 500, k['tag']))
+    tag_end = (LOCKUP_X + 2 + text_width(second, 'Unbounded', 800, k['size2']) + k['size2'] * 0.5
+               + text_width(tagline, 'Archivo', 500, k['tag']))
     # Each line is measured at its baseline. The cut moves left as y grows.
     for line, end, base in (('name', name_end, k['base']), ('tagline', tag_end, k['base2'])):
         room = cut_x(base) - end
-        print(f'banner: the {line} ends at x = {end:.1f}; the cut is at x = {cut_x(base):.1f} on its baseline '
+        print(f'{where}: the {line} ends at x = {end:.1f}; the cut is at x = {cut_x(base):.1f} on its baseline '
               f'(y = {base}); clearance {room:.1f} px')
-        gate(f'banner: {line} clearance to the cut at its baseline, minus {NAME_INSET} px (must be >= 0)',
+        gate(f'{where}: {line} clearance to the cut at its baseline, minus {NAME_INSET} px (must be >= 0)',
              room - NAME_INSET, 0)
 
 
@@ -422,18 +435,29 @@ def badge_gates():
 
 def main():
     parser = argparse.ArgumentParser(description='Write the profile assets as SVG.')
-    parser.add_argument('--root', type=Path, default=REPO,
+    parser.add_argument('--root', type=Path,
                         help='write to <root>/profile/assets/ (default: this repository)')
-    assets = parser.parse_args().root / 'profile' / 'assets'
-    banner_gates()
-    files = {'banner-dark.svg': banner('dark'), 'banner-light.svg': banner('light'),
-             'engine-dark.svg': engine('dark'), 'engine-light.svg': engine('light')}
-    for th in ('dark', 'light'):
-        engine_gates(th)
-    for key, game in CARDS.items():
-        files[f'game-{key}.svg'] = card(game)
-        game_gates('card', game, CARD_TH, T[CARD_TH]['bd'])
-    badge_gates()
+    parser.add_argument('--repo', choices=sorted(REPO_BANNERS),
+                        help='write only the README banner of this repository, to <root>/docs/assets/')
+    args = parser.parse_args()
+    if args.repo:
+        if args.root is None:
+            parser.error('--repo needs --root <dir>, the checkout of that repository')
+        assets = args.root / REPO_ASSETS
+        second, tagline, label = REPO_BANNERS[args.repo]
+        banner_gates(second, tagline, f'banner {args.repo}')
+        files = {f'banner-{th}.svg': banner(th, second, tagline, label) for th in ('dark', 'light')}
+    else:
+        assets = (args.root or REPO) / 'profile' / 'assets'
+        banner_gates()
+        files = {'banner-dark.svg': banner('dark'), 'banner-light.svg': banner('light'),
+                 'engine-dark.svg': engine('dark'), 'engine-light.svg': engine('light')}
+        for th in ('dark', 'light'):
+            engine_gates(th)
+        for key, game in CARDS.items():
+            files[f'game-{key}.svg'] = card(game)
+            game_gates('card', game, CARD_TH, T[CARD_TH]['bd'])
+        badge_gates()
     failed = [c for c in CHECKS if c[1] < c[2]]
     for label, value, minimum in CHECKS:
         print(f'{"PASS" if value >= minimum else "FAIL"}  {label}: {value:.2f} (minimum {minimum:g})')

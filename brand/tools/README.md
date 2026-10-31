@@ -9,7 +9,7 @@ Each script prints its contrast and layout gates. A script stops when a gate fai
 | Tool | Makes | Published |
 |---|---|---|
 | `textpath.py` | Text as one SVG path (HarfBuzz shapes it, fontTools draws it). The other generators import it. | no |
-| `profile-assets/gen.py` | `profile/assets/`: the Corte banner (dark, light), the engine figure (dark, light) and the four game cards, as SVG | yes |
+| `profile-assets/gen.py` | `profile/assets/`: the Corte banner (dark, light), the engine figure (dark, light) and the four game cards, as SVG. With `--repo`, the README banner of `hexablock-app` or `hexablock-api` instead | yes |
 | `avatar-previews/gen.py` | `brand/avatar.svg` and `brand/social/hexablock-app.svg`, `brand/social/hexablock-api.svg` | yes |
 | `avatar-previews/render.sh` | PNG renders of the avatar and the previews, with snap Chromium | no (input for `finish.py`) |
 | `avatar-previews/finish.py` | `brand/avatar.png` (1024 × 1024) and `brand/social/*.png` (1280 × 640) from the renders | yes |
@@ -57,6 +57,13 @@ Profile assets (writes `profile/assets/*.svg` in this repository):
 
 ```sh
 .venv/bin/python profile-assets/gen.py
+```
+
+README banner of a repository (writes `docs/assets/banner-dark.svg` and `docs/assets/banner-light.svg` in the checkout that `--root` names). The second line holds «App» or «API» and the role from the profile table:
+
+```sh
+.venv/bin/python profile-assets/gen.py --repo hexablock-app --root ~/path/to/hexablock-app
+.venv/bin/python profile-assets/gen.py --repo hexablock-api --root ~/path/to/hexablock-api
 ```
 
 Avatar and social previews. Snap Chromium cannot read the system temp folder or hidden folders in your home. So the preview folder must be a visible folder in your home, outside the repository, given as an absolute path:
