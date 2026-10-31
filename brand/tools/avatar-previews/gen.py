@@ -24,7 +24,7 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent.parent  # brand/tools/
 sys.path.insert(0, str(TOOLS))
-from textpath import text_path  # noqa: E402  (shared helper; T2 uses the same one)
+from textpath import text_path, text_width  # noqa: E402  (shared helper; T2 uses the same one)
 
 REPO = TOOLS.parent.parent  # the repository root, two levels above brand/tools/
 
@@ -135,15 +135,13 @@ SAFE_X = 40  # other sites crop a 2:1 preview to about 1.91:1; text keeps 40 px 
 TEXT_X = 60  # the left text edge of the Corte banner lockup
 
 # The signal field is a band as tall as the Corte banner (320 px).
-# It ends in the right half of a flat-top hexagon: depth = height / (2 * sqrt 3) (DESIGN.md Shapes).
-# The point sits 24 px before the right edge, as on the home header (DESIGN.md Shapes and Components).
-# With the banner point at x = 960 the 112 px name does not fit; the header inset keeps the banner size.
+# It ends in a 60-degree cut over the full field height (DESIGN.md Shapes, «Corte»).
+# The cut starts at the top-right corner, with no inset. Its horizontal run is the field height / sqrt 3.
+# The bottom end is rounded to a whole px, as the banner rounds 815.
 FIELD_H = 320
-FIELD_DEPTH = FIELD_H / (2 * SQ3)
-END_INSET = 24
-FIELD_POINT = W - END_INSET
-FIELD_FLAT_END = FIELD_POINT - FIELD_DEPTH
-NAME_GAP = 24  # the name ends 24 px or more before the slant (gate in banner_svg of ds-componentes/gen.py)
+CUT_TOP = W  # the cut starts here at y = 0
+CUT_BOTTOM = round(W - FIELD_H / SQ3)  # 1095: the cut ends here at y = 320
+NAME_GAP = 24  # each text line on the field ends 24 px or more before the cut, measured at its baseline
 
 # The board crop of banner_corte in ds-rombo/gen.py: R = 36, cells drawn 3.5 px smaller, pointy-top.
 # The cell orientation is an open TODO in DESIGN.md; the crop follows the banner reference.
@@ -170,12 +168,13 @@ def pts_attr(pts):
 
 
 def field_points():
-    return [(0, 0), (FIELD_FLAT_END, 0), (FIELD_POINT, FIELD_H / 2), (FIELD_FLAT_END, FIELD_H), (0, FIELD_H)]
+    """The field polygon in whole px, written like the banner polygon."""
+    return f'0,0 {CUT_TOP},0 {CUT_BOTTOM},{FIELD_H} 0,{FIELD_H}'
 
 
 def field_right(y):
-    """Right edge x of the field at height y. The flanks are at 60 degrees."""
-    return FIELD_POINT - abs(y - FIELD_H / 2) / SQ3
+    """Right edge x of the field at height y, on the straight edge of the cut."""
+    return CUT_TOP + (CUT_BOTTOM - CUT_TOP) * y / FIELD_H
 
 
 def under_field(x, y):
@@ -277,7 +276,17 @@ def preview_svg(name, desc):
     gate(f'{name}: name and description keep {SAFE_X} px from the left edge', min(nb[0], db[0]) / SAFE_X, 1.0)
     gate(f'{name}: name and description keep {SAFE_X} px from the right edge',
          (W - max(nb[2], db[2])) / SAFE_X, 1.0)
-    gate(f'{name}: name ends {NAME_GAP} px or more before the slant', (FIELD_FLAT_END - nb[2]) / NAME_GAP, 1.0)
+    # Each text line with its baseline on the field keeps NAME_GAP px from the cut, at that baseline.
+    # A line below the field has no cut beside it; the gates below keep it off the field.
+    clearance = {}
+    for role, s, spec, base in (('name', name, NAME, name_base), ('description', desc, DESC, desc_base)):
+        if base > FIELD_H:
+            continue
+        end = TEXT_X + text_width(s, spec['family'], spec['weight'], spec['size'], spec['spacing'])
+        clearance[role] = (end, field_right(base), field_right(base) - end)
+        gate(f'{name}: {role} ends {NAME_GAP} px or more before the cut at its baseline',
+             clearance[role][2] / NAME_GAP, 1.0)
+    gate(f'{name}: the name has its baseline on the field', 1.0 if 'name' in clearance else 0.0, 1.0)
     gate(f'{name}: name stays inside the field height', min(nb[1], FIELD_H - nb[3]) / 1.0, 1.0)
     gate(f'{name}: description clears the field bottom', (db[1] - FIELD_H) / 1.0, 1.0)
     gate(f'{name}: description clears the first cell row', (first_row_top - db[3]) / 1.0, 1.0)
@@ -289,11 +298,11 @@ def preview_svg(name, desc):
         f'<rect width="{W}" height="{H}" fill="{BOARD}"/>',
     ]
     out += [f'<polygon points="{pts_attr(pts)}" fill="{cell_fill(q, r)}"/>' for q, r, pts in board_cells()]
-    out.append(f'<polygon points="{pts_attr(field_points())}" fill="{SIG}"/>')
+    out.append(f'<polygon points="{field_points()}" fill="{SIG}"/>')
     out.append(f'<path d="{name_d}" fill="{INK}"/>')
     out.append(f'<path d="{desc_d}" fill="{PRIMARY}"/>')
     out.append('</svg>')
-    report = dict(name_base=name_base, desc_base=desc_base, name_box=nb, desc_box=db)
+    report = dict(name_base=name_base, desc_base=desc_base, name_box=nb, desc_box=db, clearance=clearance)
     return '\n'.join(out) + '\n', report
 
 
@@ -321,6 +330,13 @@ def main():
         print(f'{name}: name baseline {rep["name_base"]:.1f}, description baseline {rep["desc_base"]:.1f}, '
               f'name box {tuple(round(v) for v in rep["name_box"])}, '
               f'description box {tuple(round(v) for v in rep["desc_box"])}')
+        for role in ('name', 'description'):
+            if role in rep['clearance']:
+                end, cut, room = rep['clearance'][role]
+                print(f'{name}: the {role} ends at x = {end:.1f}; the cut is at x = {cut:.1f} on its baseline; '
+                      f'clearance {room:.1f} px')
+            else:
+                print(f'{name}: the {role} sits below the field (baseline below y = {FIELD_H}); no cut beside it')
         outputs.append((f'social/{name}.svg', svg, W, H))
     for rel, svg, w, h in outputs:
         write(brand / rel, svg)
@@ -329,7 +345,7 @@ def main():
         write(preview / flat.replace('.svg', '.html'), WRAPPER.format(src=flat, w=w, h=h))
     # The avatar at the smallest size GitHub shows it.
     write(preview / 'avatar-40.html', WRAPPER.format(src='avatar.svg', w=40, h=40))
-    print(f'field: point x = {FIELD_POINT}, depth = {FIELD_DEPTH:.1f}, flat top ends at x = {FIELD_FLAT_END:.1f}')
+    print(f'field: {field_points()}; the cut runs from x = {CUT_TOP} at y = 0 to x = {CUT_BOTTOM} at y = {FIELD_H}')
     for label, value, minimum in CHECKS:
         print(f'PASS {label}: {value:.2f} (minimum {minimum})')
     print(f'{len(CHECKS)} gates pass')

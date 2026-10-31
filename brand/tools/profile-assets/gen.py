@@ -1,7 +1,7 @@
 """T2: regenerate the profile assets of Hexablock-Suite/.github from brand/DESIGN.md.
 
 The script writes eight SVG files into profile/assets/:
-- the Corte banner, dark and light (S5), with the field end «Lado plano arriba» (L9);
+- the Corte banner, dark and light (S5), with the field end «Corte en todos» (L14);
 - the engine figure, dark and light, restyled to the DESIGN.md palette and fonts;
 - the four game cards, restyled the same way.
 
@@ -161,12 +161,21 @@ BANNER_LABEL = 'HexaBlock Suite: four hex puzzle games on one generic engine'
 TAGLINE = 'Four hex puzzle games on one generic engine'  # TAGLINE in both generators
 CORTE = dict(size=112, base=156, size2=44, base2=226, tag=26, R=36)  # CORTE in both generators
 BANNER_W, BANNER_H = 1280, 320
-# The field polygon is the literal value in DESIGN.md (Components, Corte banner).
-FIELD = '0,0 868,0 960,160 868,320 0,320'
-SLANT_X = 868  # the flat top ends here and the slant starts
-NAME_INSET = 24  # the name ends 24 px or more before the slant
+# The field ends in a 60-degree cut over the full banner height (DESIGN.md Shapes, «Corte»).
+# The horizontal run of the cut is the field height / sqrt 3.
+# CUT_TOP is CORTE['top'] in ds-rombo/gen.py. The bottom end is rounded to a whole px.
+CUT_TOP = 1000  # the cut starts here at y = 0
+CUT_BOTTOM = round(CUT_TOP - BANNER_H / SQ3)  # 815: the cut ends here at y = 320
+# The field polygon is the literal value in DESIGN.md (Components, Corte banner): 0,0 1000,0 815,320 0,320.
+FIELD = f'0,0 {CUT_TOP},0 {CUT_BOTTOM},{BANNER_H} 0,{BANNER_H}'
+NAME_INSET = 24  # each text line ends 24 px or more before the cut, measured at its baseline
 LOCKUP_X = 60
 LINE_K = 7  # cells with q + r == LINE_K form the line about to clear
+
+
+def cut_x(y):
+    """The x of the cut at height y, on the straight edge of the field polygon."""
+    return CUT_TOP + (CUT_BOTTOM - CUT_TOP) * y / BANNER_H
 
 
 def corte_cells():
@@ -244,12 +253,15 @@ def banner_gates():
     # The task holds the tagline to the normal-text floor, although 26 px counts as large text.
     gate(f'banner: tagline ink on cyan ({k["tag"]} px, held to the text floor)', cr(INK, SIG), TEXT_MIN)
     name_end = LOCKUP_X + text_width('HexaBlock', 'Unbounded', 800, k['size'], letter_spacing=-1)
-    print(f'banner: the name ends at x = {name_end:.1f}; the limit is {SLANT_X - NAME_INSET}')
-    gate('banner: px between the name end and x = 844 (must be >= 0)', SLANT_X - NAME_INSET - name_end, 0)
     tag_end = (LOCKUP_X + 2 + text_width('Suite', 'Unbounded', 800, k['size2']) + k['size2'] * 0.5
                + text_width(TAGLINE, 'Archivo', 500, k['tag']))
-    print(f'banner: the tagline ends at x = {tag_end:.1f}; the flat top ends at x = {SLANT_X}')
-    gate('banner: px between the tagline end and x = 868 (must be >= 0)', SLANT_X - tag_end, 0)
+    # Each line is measured at its baseline. The cut moves left as y grows.
+    for line, end, base in (('name', name_end, k['base']), ('tagline', tag_end, k['base2'])):
+        room = cut_x(base) - end
+        print(f'banner: the {line} ends at x = {end:.1f}; the cut is at x = {cut_x(base):.1f} on its baseline '
+              f'(y = {base}); clearance {room:.1f} px')
+        gate(f'banner: {line} clearance to the cut at its baseline, minus {NAME_INSET} px (must be >= 0)',
+             room - NAME_INSET, 0)
 
 
 # ---------- Game cells: engine figure and game cards ----------
