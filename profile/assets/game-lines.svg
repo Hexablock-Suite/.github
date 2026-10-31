@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Hexa Lines icon">
+<title>Hexa Lines icon</title>
+<polygon points="118,60 89,110.2 31,110.2 2,60 31,9.8 89,9.8" fill="#2d3142"/><g transform="translate(60 60)"><polygon points="13,0 6.5,11.3 -6.5,11.3 -13,0 -6.5,-11.3 6.5,-11.3" fill="#eb6c36"/><polygon points="13,-26 6.5,-14.7 -6.5,-14.7 -13,-26 -6.5,-37.2 6.5,-37.2" fill="#eb6c36"/><polygon points="13,26 6.5,37.2 -6.5,37.2 -13,26 -6.5,14.7 6.5,14.7" fill="#eb6c36"/><polygon points="35.5,-13 29,-1.7 16,-1.7 9.5,-13 16,-24.2 29,-24.2" fill="#4f5d75"/><polygon points="35.5,13 29,24.2 16,24.2 9.5,13 16,1.7 29,1.7" fill="#4f5d75"/><polygon points="-9.5,-13 -16,-1.7 -29,-1.7 -35.5,-13 -29,-24.2 -16,-24.2" fill="#4f5d75"/><polygon points="-9.5,13 -16,24.2 -29,24.2 -35.5,13 -29,1.7 -16,1.7" fill="#4f5d75"/></g>
+</svg>
