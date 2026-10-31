@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="HexaBlock Suite: one engine cell surrounded by six board cells">
+<title>HexaBlock Suite: one engine cell surrounded by six board cells</title>
+<rect width="1024" height="1024" fill="#2d3142"/>
+<polygon points="639.4,512 575.7,622.3 448.3,622.3 384.6,512 448.3,401.7 575.7,401.7" fill="#eb6c36"/>
+<polygon points="639.4,227.4 575.7,337.7 448.3,337.7 384.6,227.4 448.3,117.1 575.7,117.1" fill="#4f5d75"/>
+<polygon points="885.8,369.7 822.2,480 694.8,480 631.1,369.7 694.8,259.4 822.2,259.4" fill="#bfc0c0"/>
+<polygon points="885.8,654.3 822.2,764.6 694.8,764.6 631.1,654.3 694.8,544 822.2,544" fill="#bfc0c0"/>
+<polygon points="639.4,796.6 575.7,906.9 448.3,906.9 384.6,796.6 448.3,686.3 575.7,686.3" fill="#4f5d75"/>
+<polygon points="392.9,654.3 329.2,764.6 201.8,764.6 138.2,654.3 201.8,544 329.2,544" fill="#bfc0c0"/>
+<polygon points="392.9,369.7 329.2,480 201.8,480 138.2,369.7 201.8,259.4 329.2,259.4" fill="#bfc0c0"/>
+</svg>
