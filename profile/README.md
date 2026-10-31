@@ -4,8 +4,8 @@
 </picture>
 
 <p>
-  <img src="https://img.shields.io/badge/status-design%20phase-4f5d75?style=flat-square&labelColor=2d3142" alt="Status: design phase">
-  <a href="https://github.com/Hexablock-Suite/hexablock-app/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-4f5d75?style=flat-square&labelColor=2d3142" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/status-design%20phase-00728a?style=flat-square&labelColor=262830" alt="Status: design phase">
+  <a href="https://github.com/Hexablock-Suite/hexablock-app/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-00728a?style=flat-square&labelColor=262830" alt="License: MIT"></a>
 </p>
 
 HexaBlock Suite is a semester course project: one mobile app with four puzzle games on hexagonal boards, and one REST API behind it. The engine is the point of the project. All four games share one board, one rules contract and one turn cycle, and each game adds only its own rules.
@@ -50,8 +50,8 @@ The full comparison, with board, resolution, piece source, end of game, progress
 
 | Repository | What it is |
 | --- | --- |
-| [**hexablock-app**](https://github.com/Hexablock-Suite/hexablock-app)<br>[![hexablock-app CI](https://img.shields.io/github/actions/workflow/status/Hexablock-Suite/hexablock-app/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=2d3142)](https://github.com/Hexablock-Suite/hexablock-app/actions/workflows/ci.yml) | Mobile client: the four games on one generic engine.<br>![Expo](https://img.shields.io/badge/Expo-4f5d75?style=flat-square&logo=expo&logoColor=white) ![React Native](https://img.shields.io/badge/React%20Native-4f5d75?style=flat-square&logo=react&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-4f5d75?style=flat-square&logo=typescript&logoColor=white) |
-| [**hexablock-api**](https://github.com/Hexablock-Suite/hexablock-api)<br>[![hexablock-api CI](https://img.shields.io/github/actions/workflow/status/Hexablock-Suite/hexablock-api/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=2d3142)](https://github.com/Hexablock-Suite/hexablock-api/actions/workflows/ci.yml) | REST backend: users, progress, leaderboards and level definitions, with Drizzle and OpenAPI docs.<br>![NestJS](https://img.shields.io/badge/NestJS-4f5d75?style=flat-square&logo=nestjs&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4f5d75?style=flat-square&logo=postgresql&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-4f5d75?style=flat-square&logo=typescript&logoColor=white) |
+| [**hexablock-app**](https://github.com/Hexablock-Suite/hexablock-app)<br>[![hexablock-app CI](https://img.shields.io/github/actions/workflow/status/Hexablock-Suite/hexablock-app/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=262830)](https://github.com/Hexablock-Suite/hexablock-app/actions/workflows/ci.yml) | Mobile client: the four games on one generic engine.<br>![Expo](https://img.shields.io/badge/Expo-00728a?style=flat-square&logo=expo&logoColor=white) ![React Native](https://img.shields.io/badge/React%20Native-00728a?style=flat-square&logo=react&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-00728a?style=flat-square&logo=typescript&logoColor=white) |
+| [**hexablock-api**](https://github.com/Hexablock-Suite/hexablock-api)<br>[![hexablock-api CI](https://img.shields.io/github/actions/workflow/status/Hexablock-Suite/hexablock-api/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=262830)](https://github.com/Hexablock-Suite/hexablock-api/actions/workflows/ci.yml) | REST backend: users, progress, leaderboards and level definitions, with Drizzle and OpenAPI docs.<br>![NestJS](https://img.shields.io/badge/NestJS-00728a?style=flat-square&logo=nestjs&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-00728a?style=flat-square&logo=postgresql&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-00728a?style=flat-square&logo=typescript&logoColor=white) |
 
 Both repositories are public and use the MIT License.
 
