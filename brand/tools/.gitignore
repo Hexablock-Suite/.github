@@ -1,0 +1,9 @@
+# Fonts come from fetch_fonts.py. They are not committed.
+fonts/
+# Review pages from ds-rombo/gen.py and ds-componentes/gen.py.
+build/
+__pycache__/
+# Local virtual environments.
+.venv/
+venv/
+fontvenv/
