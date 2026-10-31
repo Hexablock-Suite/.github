@@ -254,6 +254,8 @@ components:
 
 Every value comes from a real source: the owner's decisions in the HexaBlock design-system feature document (S2 to S6), the second-pass generator `ds-rombo/gen.py` that measured the Rombo direction, the components-board generator `ds-componentes/gen.py` (board at https://claude.ai/artifact/LbxJjr7DjLdU8P1WnZeFAN) with the owner's picks on it, and the published brand assets in this repository. When a source does not say, the marker names what is missing. Nothing here is guessed.
 
+The generators live in `brand/tools/` of this repository, and every generator path in this file is relative to that folder. `brand/tools/profile-assets/gen.py` generates the published profile assets in `profile/assets/`. `brand/tools/avatar-previews/gen.py` generates the published avatar and the social previews in `brand/`. `brand/tools/README.md` gives the setup and the commands to rebuild them.
+
 The owner's picks on the components board, verbatim: «Tipografía: A · Radio: A · Espaciado: A · Botones: B · Campos: A · Íconos: C · Profundidad: B · Marca de referencia: Monument Valley · Tono: A (Preciso, Vivo, Claro) · Palabras prohibidas: solución, optimizar, ¡súper!, ¡yupi!, amiguito». Each letter names one option of that board. The values for each option come from `ds-componentes/gen.py`.
 
 Each component with `backgroundColor` and `textColor` is a text contrast pair. `check_design.py` tests every pair. Tiles, cells, surfaces, edges, bars and focus rings are not text, so their pairs live in the tables under Colors.
