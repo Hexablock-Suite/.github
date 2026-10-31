@@ -55,12 +55,12 @@ typography:
     fontFamily: "Unbounded"
     fontSize: 112px
     fontWeight: 800
-    lineHeight: "TODO: line height; the Corte banner places each line by baseline"
+    lineHeight: "none: one line, placed by its baseline at y = 156 of the 320px banner"
   banner-tagline:
     fontFamily: "Archivo"
     fontSize: 26px
     fontWeight: 500
-    lineHeight: "TODO: line height; the Corte banner places each line by baseline"
+    lineHeight: "none: one line, placed by its baseline at y = 226 of the 320px banner"
   body-md:
     fontFamily: "Archivo"
     fontSize: 15px
@@ -258,7 +258,7 @@ The owner's picks on the components board, verbatim: «Tipografía: A · Radio: 
 
 Each component with `backgroundColor` and `textColor` is a text contrast pair. `check_design.py` tests every pair. Tiles, cells, surfaces, edges, bars and focus rings are not text, so their pairs live in the tables under Colors.
 
-Status: draft for owner approval. No asset, diagram or app theme uses this file yet.
+Status: approved by the owner on 2026-10-31. The org profile banner, engine figure, game cards and badges, the avatar, the social previews of `hexablock-app` and `hexablock-api`, and the HexaBlock diagram profile use it. The app theme does not use it yet (T5).
 
 ## Overview
 HexaBlock Suite is a course project: one mobile app with four puzzle games (Hexa Lines, Hexa Fit, Hexa Sort, Hexa Merge) on hexagonal boards, on one generic engine. It serves two audiences. Portfolio visitors arrive «Por linkedin o por github». The professor grades the course.
@@ -376,7 +376,7 @@ Two families. **Unbounded 800** for display: titles, the banner name and the num
 - Control text, from the board CSS: buttons Archivo 600 16px with line height 1; field text Archivo 400 16px; field label Archivo 600 14px / 1.30; field help message Archivo 400 14px / 1.35; field error message Archivo 500 14px / 1.35.
 - The board's layout gate checks that «HexaBlock» fits on one line of the home header on a 390px phone at this scale.
 - The Corte banner sets the name at 112px Unbounded 800 on a 1280px-wide banner, the word «Suite» at 44px, and the tagline at 26px Archivo 500. The title must stay legible at about 360px wide (S5): 112px at 1280px is about 31px at 360px.
-- TODO: banner line heights. The Corte banner places each line by baseline; T2 sets them when it redraws the banner.
+- **Banner lines:** the Corte banner places each line by its baseline, not by a line height. The name sits at y = 156, and «Suite» and the tagline sit at y = 226 (`CORTE` in `ds-rombo/gen.py`, used by the published banner).
 - TODO: the tile number size per cell size. The app board (T5) decides it.
 
 ## Layout
@@ -407,10 +407,11 @@ Layers separate by the tone step plus a subtle shadow. The owner's pick: «Profu
 - **Corner radius «Recto».** The owner's pick: «Radio: A». Source: `RADIUS['a']` in `ds-componentes/gen.py`. Buttons 2px, cards 2px, the board frame 2px, fields 2px. Icon buttons and the game badges use the button radius. Fields round only their two top corners, above the bottom bar.
 - TODO: the radius of images. The components board shows no image.
 - **Cells and tiles:** hexagons. The hexagon as brand shape is an assumption (see Overview).
-- TODO: the hexagon orientation. The Rombo review board and the components board draw pointy-top cells (`mini_board` in `ds-rombo/gen.py`, `hexpts` in `ds-componentes/gen.py`), and the published avatar draws flat-top cells. No requirement or architecture document decides it; the engine's board coordinates (T5) decide it.
+- TODO: the hexagon orientation. The Rombo review board and the components board draw pointy-top cells (`mini_board` in `ds-rombo/gen.py`, `hexpts` in `ds-componentes/gen.py`), and the published avatar draws flat-top cells. No requirement or architecture document decides it; the engine's board coordinates (T5) decide it. The published profile mixes both today: the banner and the social previews draw pointy-top cells (from `corte_cells`), and the engine figure, the game cards and the avatar keep flat-top cells.
 - **Field end «Lado plano arriba».** The owner's pick: «B, lado plano arriba» («Remate del campo» on the components board). The signal field ends in the right half of a flat-top hexagon: a point at half the field height, with flanks at 60 degrees. The depth of the point is the field height ÷ (2 × √3), about 0.29 of the height. Source: `ENDS['b']`, `END_INSET` and `header_geom` in `ds-componentes/gen.py`.
   - Phone header: the field ends 24px before the right screen edge. With the Compacta scale and the Base 4 spacing on a 390px phone, the field is 87px tall, the point is 25px deep, and the name stays at 31px. The name never enters the point; when it does not fit, the name gets smaller.
-  - Corte banner (1280 × 320): the point is at x = 960 and 92px deep, so the flat top ends at x = 868. The name ends at x = 816, 52px before the slant starts.
+  - Corte banner (1280 × 320): the point is at x = 960 and 92px deep, so the flat top ends at x = 868. The name ends at x = 807, measured with its -1px letter spacing, 61px before the slant starts.
+  - Social preview (1280 × 640): the point sits 24px before the right edge, as on the phone header, and the depth is 92px (320 ÷ (2 × √3)). At x = 960 the 112px name would not fit.
   - This half hexagon is a brand shape for the field end only. It does not decide the orientation of the cells, which stays open above.
 - TODO: pills, and where they may appear. No source decided them.
 
