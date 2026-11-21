@@ -58,6 +58,45 @@ The generator prints it with its «Sprint N», or with «planned» when the view
 | `status` | `code` when the code has the dependency at `head`. `planned` when only a view draws it. |
 | `views` | The view files that draw the edge. Empty for an edge that only the code has. |
 
+## Layout file
+
+The layout file is optional. It fixes the order of the class diagram across generations.
+`gen.mjs --layout <layout.json>` reads it, and `pin.mjs` writes it from a `.drawio` file that a person edited in draw.io.
+Each repository keeps it at `docs/architecture/classes.layout.json`, next to `classes.config.json`.
+
+```json
+{
+  "pages": {
+    "all-classes": {
+      "1": [
+        { "group": "core|src/domain/engine", "types": ["Rules", "Engine", "Phase", "Outcome"] },
+        { "group": "core|planned", "types": ["MoveHistory"] }
+      ]
+    },
+    "part-core": {
+      "4": [{ "group": "ref|shell", "types": ["WebServer"] }]
+    }
+  }
+}
+```
+
+| Field | Value |
+|---|---|
+| `pages` | One entry per page, by page id: `all-classes` for page 1, `part-<part id>` for a part page. |
+| page entry | One entry per layer band, by layer `"1"` to `"4"`. |
+| band entry | The groups of the band, in order. Each group is `{ "group", "types" }`. |
+| `group` | The group key of `gen.mjs`: `<part>|<source folder>` for code types, `<part>|planned` for planned types, `ref|<part>` for the reference boxes of a part page. A key is unique inside one band of one page. |
+| `types` | Type ids of the group, in order. `gen.mjs` places them left to right and wraps them into rows. |
+
+Rules:
+
+1. The layout fixes order only. It fixes no position, no gap, no row break and no line route. `gen.mjs` computes them again in each generation.
+2. A page, group or type that the layout names and the model does not have is skipped. `gen.mjs` prints one warning line for each.
+3. A group that the model has and the layout does not name comes after the named groups of its band, in the computed order.
+   A type that the model has and the layout does not name comes after the named types of its group, in the computed order.
+4. The model decides the group of a type. A layout entry cannot move a type to another group.
+5. With no layout file, `gen.mjs` writes the same bytes as before the layout option existed.
+
 ## Invariants
 
 1. Every `from` and `to` is the `id` of a type in the model.

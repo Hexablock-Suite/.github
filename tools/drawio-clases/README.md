@@ -9,6 +9,66 @@ All pages come from one model, so they do not contradict each other.
 It defines the model JSON: types, edges, layers and parts.
 Change `MODEL.md` before you change the shape of the model.
 
+The tool lives in `tools/drawio-clases/` of the organization repository `Hexablock-Suite/.github`.
+Each HexaBlock repository keeps its own files in `docs/architecture/`:
+
+| File | Content |
+|---|---|
+| `classes.drawio` | the diagram that `gen.mjs` writes |
+| `classes.config.json` | the config of `merge.mjs`: folders and views to layers and parts, patterns, stereotypes |
+| `classes.layout.json` | the layout file: the fixed order of groups and boxes (`MODEL.md`, «Layout file») |
+
+## Quick start
+
+You need Node 24 and a clone of the target repository with its dependencies installed (`merge.mjs` loads its `typescript`).
+The `src/` of that clone must have no uncommitted change, because the model comes from `HEAD`.
+In the commands, `<repo>` is the root of that clone and `<out>` is a scratch directory outside it.
+
+1. Clone this repository and go to the tool.
+
+   ```sh
+   git clone https://github.com/Hexablock-Suite/.github.git hexablock-github
+   cd hexablock-github/tools/drawio-clases
+   ```
+
+2. Generate the diagram of one repository. Leave out `--layout` when the repository has no `classes.layout.json` yet.
+
+   ```sh
+   node merge.mjs <repo> <out>
+   node gen.mjs <out>/<repo-name>.model.json <repo>/docs/architecture/classes.drawio --layout <repo>/docs/architecture/classes.layout.json
+   ```
+
+3. Open `classes.drawio` in draw.io. Drag the boxes inside their group, or drag whole groups inside their band, into the order you want.
+   Save the file uncompressed: keep «Compressed» off in File > Properties.
+
+4. Pin the order of your edit into the layout file.
+
+   ```sh
+   node pin.mjs <repo>/docs/architecture/classes.drawio <out>/<repo-name>.model.json <repo>/docs/architecture/classes.layout.json
+   ```
+
+5. Generate again, with the command of step 2. `gen.mjs` now keeps your order and draws clean lines.
+
+6. Check the result. Exit 0 means no violation.
+
+   ```sh
+   node check.mjs <repo>/docs/architecture/classes.drawio <out>/<repo-name>.model.json
+   ```
+
+Commit `classes.drawio` and `classes.layout.json` together in the target repository.
+
+### Which hand edits survive
+
+| Survives the next generation | Does not survive |
+|---|---|
+| the order of the groups in a band | the pixel position of a box or a group |
+| the order of the boxes in a group, read row by row, then left to right | the gaps and the row breaks: `gen.mjs` wraps the boxes into rows again |
+| | the line routes and the label positions |
+| | a box moved to another group: it stays in the group that the model gives it, after the pinned boxes, and `pin.mjs` prints a warning |
+| | a change of text, style or size |
+
+The layout keeps order only, because a fixed position breaks when a new class arrives, and the router cannot route around an enclosed box.
+
 ## Order
 
 | Step | Script | Input | Output |
@@ -16,19 +76,27 @@ Change `MODEL.md` before you change the shape of the model.
 | 1 | `extract.mjs` | the `src/` of the repository at `head` | code types and code edges |
 | 2 | `views.mjs` | the class views of `docs/architecture/` | planned types, planned members and view edges |
 | 3 | `merge.mjs` | the output of steps 1 and 2 | one model in the shape of `MODEL.md` |
-| 4 | `gen.mjs` | the model | one uncompressed multi-page `.drawio` file |
+| 4 | `gen.mjs` | the model and the optional layout file | one uncompressed multi-page `.drawio` file |
 | 5 | `check.mjs` | the `.drawio` file and the model | the notation violations, exit 1 when there is one |
 | 6 | `render.mjs` | the `.drawio` file | one PNG per page, for a visual look |
+| - | `pin.mjs` | a `.drawio` file that a person edited, and the model | the layout file |
 
 ## Commands
 
 ```sh
-node gen.mjs <model.json> <out.drawio>
+node merge.mjs <repo-root> <out-dir> [--config <config.json>]
+node merge.mjs --check <model.json>
+node gen.mjs <model.json> <out.drawio> [--layout <layout.json>]
+node pin.mjs <edited.drawio> <model.json> <layout.json>
 node check.mjs <out.drawio> <model.json> [<config.json>]
 node render.mjs <out.drawio> <png-dir>
 ```
 
-`check.mjs` reads `config/<repo>.json` when no config is given, for the stereotypes of `stereotypeFor`.
+`merge.mjs` reads `<repo-root>/docs/architecture/classes.config.json` when no `--config` is given.
+`check.mjs` reads `classes.config.json` next to the `.drawio` file when no config is given, for the stereotypes of `stereotypeFor`.
+For a diagram at `docs/architecture/classes.drawio`, that is the same file that `merge.mjs` reads.
+`gen.mjs` prints one `warning:` line on stderr for each page, group or type of the layout file that the model does not have, and exits 0.
+`pin.mjs` prints one `warning:` line on stderr for each box that sits outside its group, and exits 0.
 `merge.mjs` lists the code types with no operation, and their stereotypes, under «Types with no operation» in `planned-report-<repo>.md`.
 The tools use Node built-ins only.
 `gen.mjs` writes no timestamp and no random id, so the same model always gives the same bytes.
@@ -50,6 +118,8 @@ The tools use Node built-ins only.
 - Inside a group, boxes that share a line sit near each other.
   Four sweeps sort each group by the mean position of the boxes that its boxes connect to.
   The bands and the groups keep their order.
+- A layout file fixes the order of the groups of a band and the order of the boxes of a group (`MODEL.md`, «Layout file»).
+  The fixed groups and boxes come first, in the order of the file. The others follow in the computed order.
 - The gaps between boxes, groups and bands are gutters.
   Two neighbours in a row that share a labelled line get a gap wide enough for the label.
 - A router walks an 8-pixel grid in the gutters and keeps 8 pixels away from every box.
@@ -117,12 +187,18 @@ The id of each cell comes from the page id and the type ids or the edge key.
 
 `fixtures/mini.model.json` is a small model with all four layers, two parts and every edge kind.
 `fixtures/broken.drawio` breaks rule 3, rule 9 and check (h) on purpose: `check.mjs` must fail on it.
+`fixtures/mini.expected.drawio` holds the bytes that `gen.mjs` writes for `fixtures/mini.model.json` with no layout file.
 
 ```sh
 node check.mjs fixtures/broken.drawio fixtures/mini.model.json   # exit 1
 node gen.mjs fixtures/mini.model.json /tmp/mini.drawio
 node check.mjs /tmp/mini.drawio fixtures/mini.model.json         # exit 0
 ```
+
+## Tests
+
+`node --test` in `tools/drawio-clases/` runs the tests of `test/`. They use Node built-ins only.
+The workflow `.github/workflows/drawio-clases.yml` runs them on each pull request and push that touches the tool.
 
 ## Render
 

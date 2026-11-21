@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // gen.mjs turns one class model (MODEL.md) into one uncompressed multi-page .drawio file.
-// Usage: node gen.mjs <model.json> <out.drawio>
+// Usage: node gen.mjs <model.json> <out.drawio> [--layout <layout.json>]
 // Page 1 shows every type in four layer bands. Each next page shows one part.
+// The layout file (MODEL.md) fixes the order of the groups of a band and the order of the boxes of a group.
 // The output has no timestamp and no random id, so one model always gives the same bytes.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -88,6 +89,11 @@ const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').re
 
 // enc turns a type id into a safe cell id part. It keeps letters and digits and hex-codes the rest.
 const enc = (s) => String(s).replace(/[^A-Za-z0-9]/g, (ch) => `_${ch.codePointAt(0).toString(16)}_`);
+
+// The cell ids come from the page id and the type id, the group key or the layer. pin.mjs reads the same ids.
+export const typeCellId = (pid, typeId) => `${pid}~type-${enc(typeId)}`;
+export const groupCellId = (pid, key) => `${pid}~group-${enc(key)}`;
+export const bandCellId = (pid, layer) => `${pid}~band-${layer}`;
 
 const NARROW = new Set("il.,:;|!'`");
 const SEMI = new Set('fjrtI()[]{} -/');
@@ -254,6 +260,20 @@ const cmpList = (a, b) => {
 };
 const dirname = (file) => file.split('/').slice(0, -1).join('/') || '.';
 
+// groupOf returns the group of one page entry: its key, its sort key and its label.
+// A reference box sits in the group of its part. A code type sits in the group of its source folder.
+function groupOf(e, ctx) {
+  const t = e.type;
+  const pi = ctx.partIndex.get(t.part);
+  const part = ctx.model.parts[pi];
+  if (e.role === 'ref') return { key: `ref|${t.part}`, sort: [1, pi, ''], label: `${part.title} · detailed on page ${pi + 2}` };
+  if (t.file) {
+    const folder = dirname(t.file);
+    return { key: `${t.part}|${folder}`, sort: [0, pi, folder], label: `${part.title} · ${folder}` };
+  }
+  return { key: `${t.part}|planned`, sort: [0, pi, '￿'], label: `${part.title} · planned` };
+}
+
 // buildBands sorts the entries of one page into bands and groups, and measures each box.
 // entries: [{ type, role: 'class' | 'ref', eyebrow }].
 function buildBands(entries, ctx, allLayers) {
@@ -263,26 +283,7 @@ function buildBands(entries, ctx, allLayers) {
     if (!inLayer.length && !allLayers) continue;
     const groups = new Map();
     for (const e of inLayer) {
-      const t = e.type;
-      const pi = ctx.partIndex.get(t.part);
-      const part = ctx.model.parts[pi];
-      let key;
-      let sort;
-      let label;
-      if (e.role === 'ref') {
-        key = `ref|${t.part}`;
-        sort = [1, pi, ''];
-        label = `${part.title} · detailed on page ${pi + 2}`;
-      } else if (t.file) {
-        const folder = dirname(t.file);
-        key = `${t.part}|${folder}`;
-        sort = [0, pi, folder];
-        label = `${part.title} · ${folder}`;
-      } else {
-        key = `${t.part}|planned`;
-        sort = [0, pi, '￿'];
-        label = `${part.title} · planned`;
-      }
+      const { key, sort, label } = groupOf(e, ctx);
       if (!groups.has(key)) groups.set(key, { key, sort, label, entries: [] });
       groups.get(key).entries.push(e);
     }
@@ -300,6 +301,35 @@ function buildBands(entries, ctx, allLayers) {
     bands.push({ layer, groups: list });
   }
   return bands;
+}
+
+// applyLayout puts the groups of each band in the order of the page layout. The other groups follow in their computed order.
+// It returns the fixed box order of each group that the layout names: group -> type ids.
+// A group or a type that the page does not have gives one warning and is skipped.
+function applyLayout(bands, pageLayout, pid, warnings) {
+  const fixed = new Map();
+  for (const [layer, list] of Object.entries(pageLayout ?? {})) {
+    const band = bands.find((b) => String(b.layer) === layer);
+    const order = [];
+    for (const { group, types = [] } of list) {
+      const g = band?.groups.find((x) => x.key === group);
+      if (!g) {
+        warnings.push(`page "${pid}" has no group "${group}" in layer ${layer}; skipped`);
+        continue;
+      }
+      if (order.includes(g)) continue;
+      const ids = new Set(g.entries.map((e) => e.type.id));
+      const keep = [];
+      for (const id of types) {
+        if (!ids.has(id)) warnings.push(`page "${pid}" group "${group}" has no type "${id}"; skipped`);
+        else if (!keep.includes(id)) keep.push(id);
+      }
+      order.push(g);
+      fixed.set(g, keep);
+    }
+    if (band) band.groups = [...order, ...band.groups.filter((g) => !order.includes(g))];
+  }
+  return fixed;
 }
 
 // placeBands places the groups in their bands and gives every box its page position (ax, ay).
@@ -344,7 +374,9 @@ function placeBands(bands, top, innerHint, gapOf = null) {
 // Two neighbours in a row that share a labelled line get a gap wide enough for the label.
 // Each sweep sorts the boxes of a group by the mean position of the boxes that they share a line with.
 // The mean y sets the rows. The mean x sets the order inside a row.
-function orderByLines(bands, edges, top) {
+// fixed (from applyLayout) gives the box order of some groups. Its boxes come first, the other boxes follow in sweep order.
+// The first placement keeps the computed order, so the page width does not change with the layout.
+function orderByLines(bands, edges, top, fixed = new Map()) {
   const items = new Map();
   for (const band of bands) for (const g of band.groups) for (const it of g.items) items.set(it.entry.type.id, it);
   const near = new Map();
@@ -359,6 +391,12 @@ function orderByLines(bands, edges, top) {
     }
   }
   const idOf = (it) => it.entry.type.id;
+  const pin = (g) => {
+    const ids = fixed.get(g);
+    if (!ids) return;
+    const at = new Map(g.items.map((it) => [idOf(it), it]));
+    g.items = [...ids.map((id) => at.get(id)), ...g.items.filter((it) => !ids.includes(idOf(it)))];
+  };
   const wide = new Map();
   for (const e of edges) {
     const text = edgeLabel(e);
@@ -387,6 +425,7 @@ function orderByLines(bands, edges, top) {
           rows.get(it.y).push(it);
         }
         g.items = [...rows.values()].flatMap((row) => row.sort((a, b) => a.bx - b.bx || cmp(idOf(a), idOf(b))));
+        pin(g);
       }
     }
     placed = placeBands(bands, top, placed.inner, gapOf);
@@ -876,7 +915,7 @@ function legendCells(pid, lineKinds, boxKinds, y) {
 // pageXml writes one <diagram>. The title and the legend come first, then the bands, then the lines.
 function pageXml(pid, name, title, entries, ctx, allLayers, stats) {
   const shown = new Set(entries.map((e) => e.type.id));
-  const cellOf = (typeId) => `${pid}~type-${enc(typeId)}`;
+  const cellOf = (typeId) => typeCellId(pid, typeId);
   const edges = ctx.model.edges.filter((e) => shown.has(e.from) && shown.has(e.to));
 
   const lineKinds = new Set(edges.map((e) => e.kind));
@@ -910,7 +949,8 @@ function pageXml(pid, name, title, entries, ctx, allLayers, stats) {
 
   const top = 44 + legend.height + 40;
   const bands = buildBands(entries, ctx, allLayers);
-  const placed = orderByLines(bands, edges, top);
+  const fixed = applyLayout(bands, ctx.layout?.pages?.[pid], pid, ctx.warnings);
+  const placed = orderByLines(bands, edges, top, fixed);
 
   const rects = new Map();
   const hard = [
@@ -920,7 +960,7 @@ function pageXml(pid, name, title, entries, ctx, allLayers, stats) {
   const soft = [];
   for (const band of bands) {
     const layer = LAYERS[band.layer];
-    const bandId = `${pid}~band-${band.layer}`;
+    const bandId = bandCellId(pid, band.layer);
     const bandLabel = band.groups.length ? layer.title : `${layer.title} · no types`;
     soft.push({ x: 0, y: band.y, w: textWidth(bandLabel, 16, true) + 30, h: BAND_TITLE - 8 });
     cells.push(
@@ -940,7 +980,7 @@ function pageXml(pid, name, title, entries, ctx, allLayers, stats) {
       soft.push({ x: g.ax, y: g.ay, w: textWidth(g.label, FONT, true) + 10, h: 20 });
       cells.push(
         vertexXml({
-          id: `${pid}~group-${enc(g.key)}`,
+          id: groupCellId(pid, g.key),
           label: escHtml(g.label),
           style: `text;html=1;whiteSpace=nowrap;align=left;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=${layer.stroke};strokeColor=none;fillColor=none;`,
           parent: bandId,
@@ -1006,9 +1046,8 @@ function pageXml(pid, name, title, entries, ctx, allLayers, stats) {
 
 // ---------------------------------------------------------------- model to file
 
-// generate returns the .drawio text.
-// It counts in stats the line labels that touch a box and those that touch another label or a title.
-export function generate(model, stats = { labelsOnBoxes: 0, labelsOnLabels: 0 }) {
+// contextOf checks the layers, parts and edges of the model and returns the shared lookups.
+function contextOf(model) {
   const parts = model.parts ?? [];
   const partIndex = new Map(parts.map((p, k) => [p.id, k]));
   for (const t of model.types) {
@@ -1020,10 +1059,16 @@ export function generate(model, stats = { labelsOnBoxes: 0, labelsOnLabels: 0 })
     if (!byId.has(e.from) || !byId.has(e.to)) throw new Error(`edge ${e.from} -> ${e.to} names a type that the model does not have`);
     if (!EDGE_KIND[e.kind]) throw new Error(`edge ${e.from} -> ${e.to} has the unknown kind "${e.kind}"`);
   }
-  const ctx = { model: { ...model, parts }, partIndex };
-  const head = `${model.repo} @ ${model.head}`;
+  return { model: { ...model, parts }, partIndex };
+}
 
-  const pages = [pageXml('all-classes', 'All classes', `${head} · page 1 · all classes`, model.types.map((type) => ({ type, role: 'class' })), ctx, true, stats)];
+// pagesOf lists the pages: page 1 with every type, then one page for each part.
+// A part page shows its own types and, as reference boxes, the types of other parts that its lines touch.
+function pagesOf(ctx) {
+  const { model, partIndex } = ctx;
+  const parts = model.parts;
+  const head = `${model.repo} @ ${model.head}`;
+  const pages = [{ pid: 'all-classes', name: 'All classes', title: `${head} · page 1 · all classes`, entries: model.types.map((type) => ({ type, role: 'class' })), allLayers: true }];
   parts.forEach((part, k) => {
     const own = model.types.filter((t) => t.part === part.id);
     const ownIds = new Set(own.map((t) => t.id));
@@ -1039,20 +1084,56 @@ export function generate(model, stats = { labelsOnBoxes: 0, labelsOnLabels: 0 })
         return { type, role: 'ref', eyebrow: `PAGE ${pi + 2} · ${parts[pi].title.toUpperCase()}` };
       });
     const entries = [...own.map((type) => ({ type, role: 'class' })), ...refs];
-    pages.push(pageXml(`part-${part.id}`, part.title, `${head} · page ${k + 2} · ${part.title}`, entries, ctx, false, stats));
+    pages.push({ pid: `part-${part.id}`, name: part.title, title: `${head} · page ${k + 2} · ${part.title}`, entries, allLayers: false });
   });
+  return pages;
+}
+
+// pageGroups returns the groups of each page: [{ pid, groups: [{ layer, key, typeIds }] }].
+// A group key is unique inside one layer band of one page.
+export function pageGroups(model) {
+  const ctx = contextOf(model);
+  return pagesOf(ctx).map(({ pid, entries }) => {
+    const groups = new Map();
+    for (const e of entries) {
+      const { key } = groupOf(e, ctx);
+      const id = `${e.type.layer}|${key}`;
+      if (!groups.has(id)) groups.set(id, { layer: e.type.layer, key, typeIds: [] });
+      groups.get(id).typeIds.push(e.type.id);
+    }
+    return { pid, groups: [...groups.values()] };
+  });
+}
+
+// generate returns the .drawio text.
+// It counts in stats the line labels that touch a box and those that touch another label or a title.
+// layout is the parsed layout file, or null. Each layout entry that the model does not have adds one line to warnings.
+export function generate(model, stats = { labelsOnBoxes: 0, labelsOnLabels: 0 }, layout = null, warnings = []) {
+  const ctx = { ...contextOf(model), layout, warnings };
+  const list = pagesOf(ctx);
+  const pages = list.map((p) => pageXml(p.pid, p.name, p.title, p.entries, ctx, p.allLayers, stats));
+  for (const pid of Object.keys(layout?.pages ?? {})) {
+    if (!list.some((p) => p.pid === pid)) warnings.push(`the model has no page "${pid}"; skipped`);
+  }
   return ['<?xml version="1.0" encoding="UTF-8"?>', '<mxfile host="drawio-clases" compressed="false">', ...pages, '</mxfile>', ''].join('\n');
 }
 
 function main(argv) {
-  if (argv.length !== 2) {
-    console.error('usage: node gen.mjs <model.json> <out.drawio>');
+  const li = argv.indexOf('--layout');
+  const layoutPath = li >= 0 ? argv[li + 1] : null;
+  const rest = argv.filter((a, i) => li < 0 || (i !== li && i !== li + 1));
+  if (rest.length !== 2 || (li >= 0 && !layoutPath)) {
+    console.error('usage: node gen.mjs <model.json> <out.drawio> [--layout <layout.json>]');
     return 2;
   }
-  const [modelPath, out] = argv;
+  const [modelPath, out] = rest;
   const model = JSON.parse(readFileSync(modelPath, 'utf8'));
+  const layout = layoutPath ? JSON.parse(readFileSync(layoutPath, 'utf8')) : null;
   const stats = { labelsOnBoxes: 0, labelsOnLabels: 0 };
-  writeFileSync(out, generate(model, stats));
+  const warnings = [];
+  const text = generate(model, stats, layout, warnings);
+  for (const w of warnings) console.error(`warning: ${w}`);
+  writeFileSync(out, text);
   console.log(
     `wrote ${out}: ${1 + (model.parts ?? []).length} pages, ${model.types.length} types, ${model.edges.length} lines, ${stats.labelsOnBoxes} labels on a box, ${stats.labelsOnLabels} labels on another label`,
   );

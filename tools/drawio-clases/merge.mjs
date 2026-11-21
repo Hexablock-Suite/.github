@@ -8,14 +8,14 @@
 // It writes <out-dir>/<repo>.model.json in the shape of MODEL.md.
 // It also writes <out-dir>/planned-report-<repo>.md with the planned types, the planned members,
 // the unresolved view lines and the view types without a layer.
-// The default config is config/<repo>.json next to this script. It maps folders and views to layers and parts.
+// The default config is <repo-root>/docs/architecture/classes.config.json. It maps folders and views to layers and parts.
 // The second form checks one model against the five invariants of MODEL.md.
 // It prints each violation on one line and exits 1 when it finds one.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { extract, repoName } from './extract.mjs';
+import { extract } from './extract.mjs';
 import { parseViews } from './views.mjs';
 
 const DIAMONDS = new Set(['aggregation', 'composition']);
@@ -606,8 +606,7 @@ function main(argv) {
     console.error('usage: node merge.mjs <repo-root> <out-dir> [--config <config.json>]\n       node merge.mjs --check <model.json>');
     process.exit(2);
   }
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const cfgPath = cfgArg ?? path.join(here, 'config', `${repoName(path.resolve(repoArg))}.json`);
+  const cfgPath = cfgArg ?? path.join(repoArg, 'docs', 'architecture', 'classes.config.json');
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   const code = extract(repoArg);
   if (code.repo !== cfg.repo) throw new Error(`config ${cfgPath} is for ${cfg.repo}, the repository is ${code.repo}`);

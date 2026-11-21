@@ -3,9 +3,11 @@
 // Usage: node check.mjs <file.drawio> <model.json> [<config.json>]
 // It prints one line for each violation and exits 1 when it finds one.
 // The config gives the stereotypes that merge.mjs puts on a code type with no operation.
-// Without the argument it reads config/<repo>.json next to this file, when that file exists.
+// Without the argument it reads classes.config.json next to the .drawio file, when that file exists.
+// The diagram lives at docs/architecture/classes.drawio, so that file is <repo-root>/docs/architecture/classes.config.json.
 // The letters in brackets are the checks of README.md.
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // The generator draws a planned line in this grey.
@@ -523,7 +525,7 @@ function main(argv) {
   }
   const [file, modelPath, configArg] = argv;
   const model = JSON.parse(readFileSync(modelPath, 'utf8'));
-  const configPath = configArg ?? new URL(`./config/${model.repo}.json`, import.meta.url);
+  const configPath = configArg ?? path.join(path.dirname(file), 'classes.config.json');
   const violations = check(readFileSync(file, 'utf8'), model, dataStereotypesOf(configPath));
   for (const v of violations) console.log(v);
   if (violations.length) {
