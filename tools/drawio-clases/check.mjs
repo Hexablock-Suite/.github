@@ -289,7 +289,8 @@ export function opProblem(line) {
   }
   if (close < 0) return 'has no closing parenthesis';
   for (const param of splitTopLevel(body.slice(m[0].length, close))) {
-    if (!/^(\.\.\.)?[\w$]+\??\s*:\s*\S/.test(param)) return `has the untyped parameter "${param}"`;
+    // A parameter name is an identifier or a destructuring pattern such as [x, y] or { x, y }.
+    if (!/^(\.\.\.)?([\w$]+\??|\[[^\]]*\]|\{[^}]*\})\s*:\s*\S/.test(param)) return `has the untyped parameter "${param}"`;
   }
   if (m[1] === 'constructor') return null;
   if (!/^\s*:\s*\S/.test(body.slice(close + 1))) return 'has no return type';

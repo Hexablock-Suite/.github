@@ -186,3 +186,15 @@ test('previous behavior: merge.mjs --check and check.mjs keep their exit codes a
   assert.equal(without.status, 1);
   assert.match(without.stdout, /\[i\] .*"WebServer"/);
 });
+
+test('check.mjs accepts an operation with a destructured parameter that has a type', () => {
+  const model = JSON.parse(readFileSync(MINI, 'utf8'));
+  const play = model.types.find((t) => t.id === 'Engine').ops.find((op) => op.name === 'play');
+  play.params = ['[from, to]: Move'];
+  const modelFile = writeJson('destructured.model.json', model);
+  const out = tmp('destructured.drawio');
+  assert.equal(run('gen.mjs', [modelFile, out]).status, 0);
+  const r = run('check.mjs', [out, modelFile]);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /0 violations/);
+});
