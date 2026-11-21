@@ -1,0 +1,134 @@
+# drawio-clases
+
+This tool draws the class model of one HexaBlock repository as one draw.io file.
+Page 1 shows every class, interface and type in four Clean layer bands.
+Each next page shows one part of the model.
+All pages come from one model, so they do not contradict each other.
+
+[`MODEL.md`](MODEL.md) is the contract between the scripts.
+It defines the model JSON: types, edges, layers and parts.
+Change `MODEL.md` before you change the shape of the model.
+
+## Order
+
+| Step | Script | Input | Output |
+|---|---|---|---|
+| 1 | `extract.mjs` | the `src/` of the repository at `head` | code types and code edges |
+| 2 | `views.mjs` | the class views of `docs/architecture/` | planned types, planned members and view edges |
+| 3 | `merge.mjs` | the output of steps 1 and 2 | one model in the shape of `MODEL.md` |
+| 4 | `gen.mjs` | the model | one uncompressed multi-page `.drawio` file |
+| 5 | `check.mjs` | the `.drawio` file and the model | the notation violations, exit 1 when there is one |
+| 6 | `render.mjs` | the `.drawio` file | one PNG per page, for a visual look |
+
+## Commands
+
+```sh
+node gen.mjs <model.json> <out.drawio>
+node check.mjs <out.drawio> <model.json> [<config.json>]
+node render.mjs <out.drawio> <png-dir>
+```
+
+`check.mjs` reads `config/<repo>.json` when no config is given, for the stereotypes of `stereotypeFor`.
+`merge.mjs` lists the code types with no operation, and their stereotypes, under «Types with no operation» in `planned-report-<repo>.md`.
+The tools use Node built-ins only.
+`gen.mjs` writes no timestamp and no random id, so the same model always gives the same bytes.
+
+## Pages
+
+- Page 1, «All classes», has a band for each layer: layer 4 at the top, layer 1 at the bottom, so every dependency points down.
+  A band groups its types by part, then by source folder. A planned type sits in the group «<part> · planned».
+  A group is a plain label, not a frame.
+- Page 2 and the next pages show one part each, in the order of `parts`.
+  A part page shows the types of its part in full.
+  It also shows each type of another part that one of its lines touches, as a grey reference box with the name only.
+  The eyebrow of that box names the page that details the type, for example `PAGE 2 · ENGINE`.
+  The page draws every line between the types it shows.
+- Each page has a legend. The legend lists only the line kinds and box kinds that the page draws.
+
+## Layout and lines
+
+- Inside a group, boxes that share a line sit near each other.
+  Four sweeps sort each group by the mean position of the boxes that its boxes connect to.
+  The bands and the groups keep their order.
+- The gaps between boxes, groups and bands are gutters.
+  Two neighbours in a row that share a labelled line get a gap wide enough for the label.
+- A router walks an 8-pixel grid in the gutters and keeps 8 pixels away from every box.
+  Each line leaves its source on one side and enters its target on one side, with a straight stub of 24 pixels for the arrowhead or the diamond.
+  The router pays for length, bends and tracks that other lines already use, so parallel lines take distinct tracks.
+- Each line stores its fixed exit and entry (`exitX`, `exitY`, `entryX`, `entryY`) and its waypoints (`<Array as="points">`) at every bend.
+  draw.io follows the waypoints of an orthogonal edge, so it draws the path of the router.
+- Each label sits on a segment of its own line, or just beside it, clear of every box.
+  A label that finds no clear place on one line wraps after each `, ` and before each ` · `.
+  `gen.mjs` and `render.mjs` both ignore a touch of 1 pixel or less.
+  `gen.mjs` estimates the text width on the wide side, so its count is never lower than the count of `render.mjs`.
+  `gen.mjs` prints how many labels touch a box or another label.
+
+## Notation
+
+| Element | Drawing |
+|---|---|
+| class box | stereotypes, name (italic when abstract), attributes `+ name: type`, operations `+ name(p: T): R` (italic when abstract) |
+| type parameters | a small dashed box at the top right of the class, with bounds and defaults |
+| union, enum | `«union»` or `«enumeration»` and one literal per line |
+| planned type | dashed border, `«planned»` and its `«Sprint N»` |
+| planned member | its `«Sprint N»`, or `«planned»`, before the member |
+| planned class with no operation | one italic line, `members not designed yet`, in the operation compartment; the tool does not invent members |
+| code class with no operation | the stereotype `«dataType»`: a type that only carries data; the `stereotypeFor` map of the config can name another one, such as `«module»` for a Nest module |
+| use | solid line, open arrowhead at the class it needs, label from the model |
+| implements | dashed line, hollow triangle |
+| extends | solid line, hollow triangle |
+| aggregation, composition | hollow or filled diamond at the holder, attribute and multiplicity near the far end |
+| planned line | the style of its kind in grey, and the word `planned` in the label |
+
+Every line goes from class cell to class cell. Dashed lines stay reserved for implements.
+
+## Cell data
+
+`gen.mjs` wraps each box in a draw.io `<object>`. Its attributes show in draw.io under «Edit Data».
+`check.mjs` and `render.mjs` read them.
+
+| `role` | Cell | Other attributes |
+|---|---|---|
+| `class` | a full class box | `typeId`, `kind`, `status`, `layer` |
+| `ref` | a reference box | `typeId`, `kind`, `status`, `layer` |
+| `tparams` | the type parameter box, a child of its class | `typeId` |
+| `band` | a layer band | `layer` |
+| `group` | a group label | none |
+| `legend`, `legend-line`, `legend-box` | the legend and its rows | `kind` on a row |
+
+Page 1 has the id `all-classes`. A part page has the id `part-<part id>`.
+The id of each cell comes from the page id and the type ids or the edge key.
+
+## Checks
+
+`check.mjs` prints one line for each violation.
+
+| Check | Rule |
+|---|---|
+| (a) | The `source` and `target` of every edge are class or reference cells (rule 3). Each edge has one UML line kind in its style. |
+| (b) | No aggregation or composition joins two layers (rule 9). |
+| (c) | Page 1 shows every model type exactly once and in the band of its layer. It draws every model line, and no other line. |
+| (d) | Each part page is a subset of page 1: the same boxes, and only lines that page 1 draws. It shows every line between the types it shows. A reference box names the page that details it. |
+| (e) | Every operation shows parentheses, a type for each parameter and a return type. A constructor has no return type (rule 5). |
+| (f) | The legend of each page lists exactly the line kinds and box kinds of that page (rule 13). |
+| (g) | The XML parses. |
+| (h) | Every line has a fixed exit, a fixed entry and waypoints, with no diagonal segment. No segment enters a class box, a reference box or a type parameter box, except the two boxes that the line joins. |
+| (i) | A class or interface box with no operation says why. A planned box shows `members not designed yet`. A code box shows `«dataType»` or a stereotype of the `stereotypeFor` map of the config. Any other class or interface with no operation is a violation. Types, unions, enums and consts are exempt. |
+
+`fixtures/mini.model.json` is a small model with all four layers, two parts and every edge kind.
+`fixtures/broken.drawio` breaks rule 3, rule 9 and check (h) on purpose: `check.mjs` must fail on it.
+
+```sh
+node check.mjs fixtures/broken.drawio fixtures/mini.model.json   # exit 1
+node gen.mjs fixtures/mini.model.json /tmp/mini.drawio
+node check.mjs /tmp/mini.drawio fixtures/mini.model.json         # exit 0
+```
+
+## Render
+
+`render.mjs` needs a local Chromium. It looks for `CHROME_BIN`, then for the Playwright browsers in `~/.cache/ms-playwright`, then for `chromium` or `google-chrome` on the `PATH`.
+It does not use draw.io. It places the boxes and the HTML labels at their geometry, as draw.io does.
+It draws each line through its fixed exit, its waypoints and its fixed entry, and puts each label where draw.io puts it.
+A line without waypoints gets a simple elbow, so draw.io can route that line on another path.
+For each page it reports the labels larger than their box, the line labels on a box, the overlapping boxes and the lines that cross a box.
+`RENDER_SCALE` sets the PNG scale. The default keeps each side under 12000 pixels.

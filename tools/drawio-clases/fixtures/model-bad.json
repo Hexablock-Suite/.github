@@ -1,0 +1,54 @@
+{
+  "repo": "fixture",
+  "head": "0000000",
+  "parts": [
+    { "id": "domain", "title": "Domain" },
+    { "id": "usecases", "title": "Use cases" }
+  ],
+  "types": [
+    {
+      "id": "PlayMove",
+      "name": "PlayMove",
+      "kind": "class",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": ["use case"],
+      "layer": 2,
+      "part": "usecases",
+      "file": "src/application/play-move.ts",
+      "line": 1,
+      "typeParams": [],
+      "attrs": [{ "vis": "-", "name": "engine", "type": "Engine", "static": false, "readonly": true, "optional": false }],
+      "ops": [{ "vis": "+", "name": "execute", "params": ["move: Move"], "ret": "void", "abstract": false, "static": false }],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "Engine",
+      "name": "Engine",
+      "kind": "class",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 1,
+      "part": "domain",
+      "file": "src/domain/engine.ts",
+      "line": 1,
+      "typeParams": [],
+      "attrs": [],
+      "ops": [],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    }
+  ],
+  "edges": [
+    { "from": "PlayMove", "to": "Engine", "kind": "composition", "label": "engine 1", "pattern": "State", "status": "code", "views": [] },
+    { "from": "PlayMove", "to": "Move", "kind": "use", "label": "execute()", "pattern": null, "status": "code", "views": [] }
+  ]
+}
