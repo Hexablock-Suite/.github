@@ -82,6 +82,7 @@ function vertexHtml(cell, box) {
   if (!st.text) {
     css.push(`background:${st.fillColor ?? '#ffffff'}`);
     css.push(`border:${st.strokeWidth ?? 1}px ${st.dashed === '1' ? 'dashed' : 'solid'} ${st.strokeColor ?? '#000000'}`);
+    if (st.rounded === '1') css.push(`border-radius:${st.absoluteArcSize === '1' ? num(st.arcSize, 10) / 2 : 8}px`);
   }
   const fontStyle = num(st.fontStyle);
   const inner = [
@@ -168,7 +169,7 @@ function renderPage(page) {
       maxY = Math.max(maxY, y + 20);
     }
     paths.push(
-      `<polyline points="${pts.map((p) => p.join(',')).join(' ')}" fill="none" stroke="${color}" stroke-width="1.3"${st.dashed === '1' ? ' stroke-dasharray="6,4"' : ''} ${markers}/>`,
+      `<polyline points="${pts.map((p) => p.join(',')).join(' ')}" fill="none" stroke="${color}" stroke-width="${num(st.strokeWidth, 1)}"${st.dashed === '1' ? ' stroke-dasharray="6,4"' : ''} ${markers}/>`,
     );
     const crossed = crossedBoxes(
       pts.map(([x, y]) => ({ x, y })),

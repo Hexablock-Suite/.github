@@ -95,6 +95,7 @@ Rules:
 3. A group that the model has and the layout does not name comes after the named groups of its band, in the computed order.
    A type that the model has and the layout does not name comes after the named types of its group, in the computed order.
 4. The model decides the group of a type. A layout entry cannot move a type to another group.
+   The model also decides the view frame of a type in a large group (README, «Pages»). The frames follow the first appearance of their view in the box order of the group.
 5. With no layout file, `gen.mjs` writes the same bytes as before the layout option existed.
 
 ## Invariants

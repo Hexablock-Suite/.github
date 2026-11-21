@@ -11,12 +11,13 @@ import { absBoxes, parseXml, readPages } from './check.mjs';
 import { bandCellId, groupCellId, pageGroups, typeCellId } from './gen.mjs';
 
 // byRows sorts items { x, y, h } by row, then by column.
-// An item joins the current row when its top is above the middle of the first item of that row.
+// An item joins the current row when its top is above the middle of every item of that row.
+// So two rows of one frame never merge, even when a tall box of another frame sits beside them.
 function byRows(items) {
   const rows = [];
   for (const it of [...items].sort((a, b) => a.y - b.y || a.x - b.x)) {
     const row = rows[rows.length - 1];
-    if (row && it.y < row[0].y + row[0].h / 2) row.push(it);
+    if (row && row.every((r) => it.y < r.y + r.h / 2)) row.push(it);
     else rows.push([it]);
   }
   return rows.flatMap((row) => row.sort((a, b) => a.x - b.x));

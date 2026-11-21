@@ -63,6 +63,7 @@ Commit `classes.drawio` and `classes.layout.json` together in the target reposit
 |---|---|
 | the order of the groups in a band | the pixel position of a box or a group |
 | the order of the boxes in a group, read row by row, then left to right | the gaps and the row breaks: `gen.mjs` wraps the boxes into rows again |
+| | the view frames: `gen.mjs` draws them again; the box order sets the frame order (see «Pages») |
 | | the line routes and the label positions |
 | | a box moved to another group: it stays in the group that the model gives it, after the pinned boxes, and `pin.mjs` prints a warning |
 | | a change of text, style or size |
@@ -105,7 +106,16 @@ The tools use Node built-ins only.
 
 - Page 1, «All classes», has a band for each layer: layer 4 at the top, layer 1 at the bottom, so every dependency points down.
   A band groups its types by part, then by source folder. A planned type sits in the group «<part> · planned».
-  A group is a plain label, not a frame.
+  A group has a thin border and its label at the top left.
+- A group with 12 boxes or more is large. A large group, and a group alone in its band, takes the full width of the band.
+- Inside a large group of class boxes, the boxes of one view sit in one frame. The frame title names the view, for example `view engine-1-turn`.
+  Each type has one home view: the view of its `views` array that the most boxes of the group share. A tie goes to the first view name.
+  A view that draws more than half of the boxes of the group is an overview, such as `overview-engine`. A type goes to it only when it has no other view.
+  A type with no view sits in the frame `in no view`. A view that is home to one box only goes to the frame `other views`.
+  A group with one frame only gets no frame. A group of reference boxes gets no frame.
+  The frames follow the first box of each frame in the box order, and each frame keeps the box order. So the layout file also orders the frames.
+  The frames of a group aim at one height and stand side by side, like columns. A frame is as wide as the area of its boxes needs.
+  A frame is not a container: a box stays a child of its band.
 - Page 2 and the next pages show one part each, in the order of `parts`.
   A part page shows the types of its part in full.
   It also shows each type of another part that one of its lines touches, as a grey reference box with the name only.
@@ -127,6 +137,10 @@ The tools use Node built-ins only.
   The router pays for length, bends and tracks that other lines already use, so parallel lines take distinct tracks.
 - Each line stores its fixed exit and entry (`exitX`, `exitY`, `entryX`, `entryY`) and its waypoints (`<Array as="points">`) at every bend.
   draw.io follows the waypoints of an orthogonal edge, so it draws the path of the router.
+- A member line, a literal or a type alias wider than 460 pixels wraps after `, `, `; `, `(`, `{ ` or `<`, or before ` | `.
+  The next part starts with an indent. `<br class="wrap">` marks the soft break, and `check.mjs` reads the parts as one line.
+- The use lines of a page live in the draw.io layer `use lines`, above the default layer. Hide them in Edit > Layers (Ctrl+Shift+L).
+  The structure lines (`extends`, `implements`, `aggregation`, `composition`) stay in the default layer.
 - Each label sits on a segment of its own line, or just beside it, clear of every box.
   A label that finds no clear place on one line wraps after each `, ` and before each ` · `.
   `gen.mjs` and `render.mjs` both ignore a touch of 1 pixel or less.
@@ -144,13 +158,17 @@ The tools use Node built-ins only.
 | planned member | its `«Sprint N»`, or `«planned»`, before the member |
 | planned class with no operation | one italic line, `members not designed yet`, in the operation compartment; the tool does not invent members |
 | code class with no operation | the stereotype `«dataType»`: a type that only carries data; the `stereotypeFor` map of the config can name another one, such as `«module»` for a Nest module |
-| use | solid line, open arrowhead at the class it needs, label from the model |
-| implements | dashed line, hollow triangle |
-| extends | solid line, hollow triangle |
-| aggregation, composition | hollow or filled diamond at the holder, attribute and multiplicity near the far end |
-| planned line | the style of its kind in grey, and the word `planned` in the label |
+| long member | wraps into parts; each next part starts with an indent |
+| use | thin (1 px) solid line in a light ink, open arrowhead at the class it needs, label from the model in 10 px; layer `use lines` |
+| implements | dashed line, hollow triangle, 2 px |
+| extends | solid line, hollow triangle, 2 px |
+| aggregation, composition | hollow or filled diamond at the holder, attribute and multiplicity near the far end, 2 px |
+| planned line | the style and width of its kind in grey, and the word `planned` in the label |
+| group | thin border in the layer color, label at the top left |
+| view frame | rounded panel in a light tint of the layer, title `view <name>` |
 
 Every line goes from class cell to class cell. Dashed lines stay reserved for implements.
+The light ink of a use line is darker than the grey of a planned line.
 
 ## Cell data
 
@@ -163,10 +181,12 @@ Every line goes from class cell to class cell. Dashed lines stay reserved for im
 | `ref` | a reference box | `typeId`, `kind`, `status`, `layer` |
 | `tparams` | the type parameter box, a child of its class | `typeId` |
 | `band` | a layer band | `layer` |
-| `group` | a group label | none |
+| `group` | the border and label of a group | none |
+| `frame` | the frame of one view inside a large group | `view` |
 | `legend`, `legend-line`, `legend-box` | the legend and its rows | `kind` on a row |
 
 Page 1 has the id `all-classes`. A part page has the id `part-<part id>`.
+The use layer of a page is the plain cell `<page id>~layer-use`, with the name `use lines`. Each use line has it as its parent.
 The id of each cell comes from the page id and the type ids or the edge key.
 
 ## Checks
@@ -204,7 +224,7 @@ The workflow `.github/workflows/drawio-clases.yml` runs them on each pull reques
 
 `render.mjs` needs a local Chromium. It looks for `CHROME_BIN`, then for the Playwright browsers in `~/.cache/ms-playwright`, then for `chromium` or `google-chrome` on the `PATH`.
 It does not use draw.io. It places the boxes and the HTML labels at their geometry, as draw.io does.
-It draws each line through its fixed exit, its waypoints and its fixed entry, and puts each label where draw.io puts it.
+It draws each line through its fixed exit, its waypoints and its fixed entry, with its stroke width, and puts each label where draw.io puts it.
 A line without waypoints gets a simple elbow, so draw.io can route that line on another path.
 For each page it reports the labels larger than their box, the line labels on a box, the overlapping boxes and the lines that cross a box.
 `RENDER_SCALE` sets the PNG scale. The default keeps each side under 12000 pixels.

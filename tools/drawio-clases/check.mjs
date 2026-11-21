@@ -157,8 +157,10 @@ export function readPages(root) {
 }
 
 // labelText turns an HTML label into plain text, one line per <br> or block.
+// gen.mjs wraps a long member with <br class="wrap">. That soft break joins the parts again into one line.
 export function labelText(html) {
   return html
+    .replace(/<br class="wrap">/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(div|p)>/gi, '\n')
     .replace(/<[^>]*>/g, '')

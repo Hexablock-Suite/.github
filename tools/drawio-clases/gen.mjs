@@ -22,6 +22,22 @@ const PLANNED_TEXT = '#6b7280';
 const REF_FILL = '#e5e7eb';
 const REF_STROKE = '#9ca3af';
 
+// mix blends color a toward color b. t = 0 gives a, t = 1 gives b. Both colors are #rrggbb.
+function mix(a, b, t) {
+  const ch = (hex, k) => parseInt(hex.slice(1 + 2 * k, 3 + 2 * k), 16);
+  return `#${[0, 1, 2].map((k) => Math.round(ch(a, k) + (ch(b, k) - ch(a, k)) * t).toString(16).padStart(2, '0')).join('')}`;
+}
+// A use line recedes: it is thinner and lighter than a structure line, and its label is smaller.
+// Its color comes from INK, lighter, and it stays darker than the grey of a planned line.
+const USE_STROKE = mix(INK, '#ffffff', 0.35);
+const USE_WIDTH = 1;
+const USE_FONT = 10;
+const STRUCTURE_WIDTH = 2;
+const STRUCTURE_FONT = 11;
+// The use lines of a page live in this draw.io layer. A reader hides them with one click in Edit > Layers.
+const USE_LAYER = 'use lines';
+export const useLayerId = (pid) => `${pid}~layer-use`;
+
 const FONT = 12;
 const SMALL = 11;
 const LINE = 16;
@@ -32,6 +48,21 @@ const EMPTY = 8;
 const GAP_X = 64;
 const GAP_Y = 80;
 const GROUP_LABEL = 28;
+// A group has a thin border. Its boxes keep this space from the border.
+const GROUP_PAD = 16;
+// A group with this many boxes or more is large. A large group takes the width of its band.
+// Inside a large group, the boxes of one view sit in one frame.
+const LARGE_GROUP = 12;
+const FRAME_LABEL = 26;
+const FRAME_PAD = 14;
+const FRAME_SLACK = 1.15;
+const NO_VIEW = 'in no view';
+const OTHER_VIEWS = 'other views';
+// A member line wider than this wraps. A continuation line starts with this indent.
+const WRAP_W = 460;
+const INDENT = '\u00a0\u00a0\u00a0\u00a0';
+// The soft line break of a wrapped member. check.mjs joins the two parts again.
+const WRAP_BR = '<br class="wrap">';
 const GROUP_GAP_X = 96;
 const GROUP_GAP_Y = 80;
 const GROUP_MAX_W = 2600;
@@ -45,7 +76,7 @@ const LEGEND_ROW = 20;
 // The type parameter box covers only this much of the class box, so it hides no stereotype.
 const TPARAMS_OVERLAP = 4;
 
-const EDGE_BASE = 'edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;';
+const EDGE_BASE = 'edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#ffffff;';
 const EDGE_KIND = {
   use: 'endArrow=open;endSize=10;startArrow=none;',
   implements: 'endArrow=block;endFill=0;endSize=12;startArrow=none;dashed=1;',
@@ -56,7 +87,7 @@ const EDGE_KIND = {
 
 // Legend rows. Each row names one line kind or one box kind (rule 13).
 const LEGEND_LINES = {
-  use: ['——&gt;', 'use: solid line, open arrowhead at the class it needs'],
+  use: ['——&gt;', 'use: thin light solid line, open arrowhead at the class it needs; layer «use lines»'],
   implements: ['- - -▷', 'implements: dashed line, hollow triangle'],
   extends: ['——▷', 'extends: solid line, hollow triangle'],
   aggregation: ['◇——', 'aggregation: hollow diamond at the holder, one layer'],
@@ -112,27 +143,51 @@ export function textWidth(text, size = FONT, bold = false) {
   return Math.ceil(units * size * (bold ? 1.1 : 1));
 }
 
-// A label line keeps its HTML and its plain text. The plain text sets the width.
-function line(text, { size = FONT, bold = false, italic = false, color = null } = {}) {
-  let html = escHtml(text);
+// wrapText splits a text wider than WRAP_W into parts at natural breaks.
+// A break comes after ", ", "; ", "(", "{ " and "<", and before " | ".
+// Each part after the first starts with INDENT. A piece with no break stays whole, so it can stay wider.
+export function wrapText(text, size = FONT) {
+  if (textWidth(text, size) <= WRAP_W) return [text];
+  const pieces = text.split(/(?<=, |; |\(|\{ |<)|(?= \| )/);
+  const parts = [];
+  let cur = '';
+  for (const piece of pieces) {
+    const next = parts.length ? INDENT + (cur + piece).trimStart() : cur + piece;
+    if (cur && textWidth(next.trimEnd(), size) > WRAP_W) {
+      parts.push(cur);
+      cur = piece;
+    } else cur += piece;
+  }
+  parts.push(cur);
+  return parts.map((p, k) => (k ? INDENT + p.trimStart() : p).trimEnd());
+}
+
+// A label line keeps its HTML, its width and its count of drawn lines (n).
+// The plain text sets the width. With wrap, a long text breaks into parts.
+function line(text, { size = FONT, bold = false, italic = false, color = null, wrap = false } = {}) {
+  const parts = wrap ? wrapText(text, size) : [text];
+  let html = parts.map(escHtml).join(WRAP_BR);
   if (bold) html = `<b>${html}</b>`;
   if (italic) html = `<i>${html}</i>`;
   if (size !== FONT || color) html = `<span style="${size !== FONT ? `font-size:${size}px;` : ''}${color ? `color:${color};` : ''}">${html}</span>`;
-  return { html, width: textWidth(text, size, bold) };
+  return { html, width: Math.max(...parts.map((p) => textWidth(p, size, bold))), n: parts.length };
 }
 
 // member prints one attribute or operation. A planned member starts with its «Sprint N» or «planned».
+// A long member wraps into parts.
 function member(text, m, { italic = false, underline = false } = {}) {
-  let html = escHtml(text);
-  if (underline) html = `<u>${html}</u>`;
-  if (italic) html = `<i>${html}</i>`;
-  let plain = text;
-  if (m.planned) {
-    const mark = `«${m.sprint ?? 'planned'}»`;
-    html = `<span style="color:${PLANNED_TEXT};">${escHtml(mark)}</span> ${html}`;
-    plain = `${mark} ${text}`;
-  }
-  return { html, width: textWidth(plain) };
+  const mark = m.planned ? `«${m.sprint ?? 'planned'}»` : null;
+  const parts = wrapText(mark ? `${mark} ${text}` : text);
+  const style = (t) => {
+    let html = escHtml(t);
+    if (underline) html = `<u>${html}</u>`;
+    if (italic) html = `<i>${html}</i>`;
+    return html;
+  };
+  const html = parts
+    .map((p, k) => (k === 0 && mark ? `<span style="color:${PLANNED_TEXT};">${escHtml(mark)}</span> ${style(p.slice(mark.length + 1))}` : style(p)))
+    .join(WRAP_BR);
+  return { html, width: Math.max(...parts.map((p) => textWidth(p))), n: parts.length };
 }
 
 function attrLine(a) {
@@ -169,10 +224,10 @@ function classBox(t) {
 
   const compartments = [];
   if (t.kind === 'union' || t.kind === 'enum') {
-    compartments.push((t.values ?? []).map((v) => line(v)));
+    compartments.push((t.values ?? []).map((v) => line(v, { wrap: true })));
   } else {
     const attrs = (t.attrs ?? []).map(attrLine);
-    if (t.alias) attrs.unshift(line(`= ${t.alias}`));
+    if (t.alias) attrs.unshift(line(`= ${t.alias}`, { wrap: true }));
     const ops = (t.ops ?? []).map(opLine);
     if (isUndesigned(t)) {
       ops.push({ html: `<span style="font-style:italic;color:${PLANNED_TEXT};">${UNDESIGNED}</span>`, width: textWidth(UNDESIGNED) });
@@ -191,7 +246,8 @@ function classBox(t) {
 
   const all = [...head, ...compartments.flat()];
   const width = Math.max(120, Math.max(...all.map((l) => l.width)) + 2 * PAD_X + 12);
-  const height = 4 + head.length * LINE + compartments.reduce((h, c) => h + HR + (c.length ? c.length * LINE : EMPTY), 0) + 8;
+  const rows = (lines) => lines.reduce((n, l) => n + (l.n ?? 1), 0);
+  const height = 4 + head.length * LINE + compartments.reduce((h, c) => h + HR + (c.length ? rows(c) * LINE : EMPTY), 0) + 8;
 
   let tparams = null;
   if (t.typeParams?.length) {
@@ -221,12 +277,13 @@ function refBox(t, eyebrow) {
 // shelf places items left to right and starts a new row at maxW.
 // Each item has w, h, top (space above it) and right (space after it).
 // gapOf(a, b) can widen the gap between two neighbours in a row. It never returns less than gapX.
-function shelf(items, maxW, gapX, gapY, gapOf = null) {
+// minTop is the least space above the first row. Frames use it, so the first rows of all frames of a group share one y.
+function shelf(items, maxW, gapX, gapY, gapOf = null, minTop = 0) {
   let x = 0;
   let y = 0;
   let row = [];
   let rowH = 0;
-  let rowTop = 0;
+  let rowTop = minTop;
   let width = 0;
   const flush = () => {
     for (const it of row) it.y = y + rowTop;
@@ -297,10 +354,88 @@ function buildBands(entries, ctx, allLayers) {
       const maxW = Math.max(...g.items.map((it) => it.w + it.right));
       const area = g.items.reduce((s, it) => s + (it.w + it.right + GAP_X) * (it.h + it.top + GAP_Y), 0);
       g.limit = Math.max(maxW, textWidth(g.label, FONT, true), Math.min(GROUP_MAX_W, Math.sqrt(area * 3.5)));
+      g.large = g.items.length >= LARGE_GROUP;
+      // Reference boxes get no frame: their views belong to the page that details them.
+      g.home = g.large && !g.key.startsWith('ref|') ? homeViews(g.entries) : null;
     }
     bands.push({ layer, groups: list });
   }
   return bands;
+}
+
+// homeViews gives each box of a large group one home view: the frame that holds it.
+// The home of a type is the view of its views array that the most boxes of the group share. A tie goes to the first name.
+// A view that draws more than half of the boxes of the group is an overview. A type goes to an overview only when it has no other view.
+// A type with no view goes to the frame NO_VIEW. A view that is home to one box only goes to the frame OTHER_VIEWS.
+// It returns null when the group has fewer than two frames, because then the group needs no frame.
+function homeViews(entries) {
+  const shared = new Map();
+  for (const e of entries) for (const v of new Set(e.type.views ?? [])) shared.set(v, (shared.get(v) ?? 0) + 1);
+  const overview = (v) => (shared.get(v) * 2 > entries.length ? 1 : 0);
+  const home = new Map();
+  for (const e of entries) {
+    const views = [...new Set(e.type.views ?? [])].sort((a, b) => overview(a) - overview(b) || shared.get(b) - shared.get(a) || cmp(a, b));
+    home.set(e.type.id, views[0] ?? NO_VIEW);
+  }
+  const homes = new Map();
+  for (const v of home.values()) homes.set(v, (homes.get(v) ?? 0) + 1);
+  for (const [id, v] of home) if (v !== NO_VIEW && homes.get(v) < 2) home.set(id, OTHER_VIEWS);
+  return new Set(home.values()).size > 1 ? home : null;
+}
+
+// frameTitle returns the title of the frame of one home view.
+const frameTitle = (view) => (view === NO_VIEW || view === OTHER_VIEWS ? view : `view ${view}`);
+
+// placeGroup places the boxes of one group inside its border. Each box gets gx, gy relative to the group.
+// limit is the width for the boxes, without the border space.
+// A group with homes puts its frames in the order of the first box of each frame in g.items.
+// Each frame keeps the order of its boxes in g.items. So a fixed box order (MODEL.md, «Layout file») also orders the frames.
+function placeGroup(g, limit, gapOf) {
+  const labelW = textWidth(g.label, FONT, true) + 20;
+  g.frames = [];
+  if (!g.home) {
+    const size = shelf(g.items, limit, GAP_X, GAP_Y, gapOf);
+    for (const it of g.items) {
+      it.gx = GROUP_PAD + it.x;
+      it.gy = GROUP_LABEL + it.y;
+    }
+    g.w = Math.max(size.width + 2 * GROUP_PAD, labelW);
+    g.h = GROUP_LABEL + size.height + GROUP_PAD;
+    return;
+  }
+  const byView = new Map();
+  for (const it of g.items) {
+    const view = g.home.get(it.entry.type.id);
+    if (!byView.has(view)) byView.set(view, { view, items: [] });
+    byView.get(view).items.push(it);
+  }
+  // All frames aim at one height, so they fill the group width side by side, like columns.
+  // A frame gets a width in proportion to the area of its boxes. The slack leaves room for row breaks.
+  const minTop = Math.max(...g.items.map((it) => it.top));
+  const frames = [...byView.values()];
+  const areaOf = (items) => items.reduce((s, it) => s + (it.w + it.right + GAP_X) * (it.h + it.top + GAP_Y), 0);
+  const room = Math.max(1, limit - (frames.length - 1) * GAP_X - frames.length * 2 * FRAME_PAD);
+  const height = (areaOf(g.items) * FRAME_SLACK) / room;
+  for (const f of frames) {
+    const titleW = textWidth(frameTitle(f.view), 11, true) + 16;
+    const widest = Math.max(...f.items.map((it) => it.w + it.right));
+    const fLimit = Math.max(widest, Math.min(limit - 2 * FRAME_PAD, areaOf(f.items) / height));
+    const size = shelf(f.items, fLimit, GAP_X, GAP_Y, gapOf, minTop);
+    f.w = Math.max(size.width, titleW) + 2 * FRAME_PAD;
+    f.h = FRAME_LABEL + size.height + FRAME_PAD;
+    g.frames.push(f);
+  }
+  const size = shelf(g.frames, limit, GAP_X, GAP_Y);
+  for (const f of g.frames) {
+    f.gx = GROUP_PAD + f.x;
+    f.gy = GROUP_LABEL + f.y;
+    for (const it of f.items) {
+      it.gx = f.gx + FRAME_PAD + it.x;
+      it.gy = f.gy + FRAME_LABEL + it.y;
+    }
+  }
+  g.w = Math.max(size.width + 2 * GROUP_PAD, labelW);
+  g.h = GROUP_LABEL + size.height + GROUP_PAD;
 }
 
 // applyLayout puts the groups of each band in the order of the page layout. The other groups follow in their computed order.
@@ -334,20 +469,22 @@ function applyLayout(bands, pageLayout, pid, warnings) {
 
 // placeBands places the groups in their bands and gives every box its page position (ax, ay).
 // All bands of a page have the same width. The first band starts at y = top.
+// A large group and a group alone in its band take the full width of the band.
 function placeBands(bands, top, innerHint, gapOf = null) {
-  for (const band of bands) {
-    for (const g of band.groups) {
-      const size = shelf(g.items, g.limit, GAP_X, GAP_Y, gapOf);
-      g.w = Math.max(size.width, textWidth(g.label, FONT, true) + 10);
-      g.h = GROUP_LABEL + size.height;
-    }
-  }
   let inner = innerHint;
   if (inner === undefined) {
+    for (const band of bands) for (const g of band.groups) placeGroup(g, g.limit, gapOf);
     const groups = bands.flatMap((b) => b.groups);
     const widest = Math.max(800, ...groups.map((g) => g.w));
     const area = groups.reduce((s, g) => s + (g.w + GROUP_GAP_X) * (g.h + GROUP_GAP_Y), 0);
     inner = Math.ceil(Math.max(widest, Math.min(PAGE_MAX_W, Math.sqrt(area * 1.6))));
+  }
+  for (const band of bands) {
+    for (const g of band.groups) {
+      const full = g.large || band.groups.length === 1;
+      placeGroup(g, full ? inner - 2 * GROUP_PAD : g.limit, gapOf);
+      if (full) g.w = inner;
+    }
   }
   let width = inner;
   let y = top;
@@ -360,8 +497,12 @@ function placeBands(bands, top, innerHint, gapOf = null) {
       g.ax = BAND_PAD + g.x;
       g.ay = y + BAND_TITLE + g.y;
       for (const it of g.items) {
-        it.ax = g.ax + it.x;
-        it.ay = g.ay + GROUP_LABEL + it.y;
+        it.ax = g.ax + it.gx;
+        it.ay = g.ay + it.gy;
+      }
+      for (const f of g.frames) {
+        f.ax = g.ax + f.gx;
+        f.ay = g.ay + f.gy;
       }
     }
     y += band.h + BAND_GAP;
@@ -830,13 +971,17 @@ const edgeLabel = (e) => (e.status === 'planned' ? (e.label ? `${e.label} · pla
 
 // edgeXml writes one line with its fixed exit, fixed entry, waypoints and label position.
 // draw.io follows the waypoints of an orthogonal edge, so it draws the same path as the router.
+// A use line sits in the use layer, thin and light. A structure line sits in layer 1, thick and dark.
 function edgeXml(pid, e, cellOf, route) {
   const planned = e.status === 'planned';
-  const color = planned ? `strokeColor=${PLANNED_STROKE};fontColor=${PLANNED_TEXT};` : `strokeColor=${INK};fontColor=${INK};`;
+  const use = e.kind === 'use';
+  const ink = use ? USE_STROKE : INK;
+  const color = planned ? `strokeColor=${PLANNED_STROKE};fontColor=${PLANNED_TEXT};` : `strokeColor=${ink};fontColor=${ink};`;
+  const weight = use ? `strokeWidth=${USE_WIDTH};fontSize=${USE_FONT};` : `strokeWidth=${STRUCTURE_WIDTH};fontSize=${STRUCTURE_FONT};`;
   const ends =
     `exitX=${fmt(route.exit.fx)};exitY=${fmt(route.exit.fy)};exitDx=0;exitDy=0;exitPerimeter=0;` +
     `entryX=${fmt(route.entry.fx)};entryY=${fmt(route.entry.fy)};entryDx=0;entryDy=0;entryPerimeter=0;`;
-  const style = EDGE_BASE + EDGE_KIND[e.kind] + color + ends;
+  const style = EDGE_BASE + EDGE_KIND[e.kind] + color + weight + ends;
   const label = edgeLabel(e);
   const labelHtml = (route.labelLines ?? [label]).map(escHtml).join('<br>');
   let inner = route.pts.slice(1, -1);
@@ -851,7 +996,7 @@ function edgeXml(pid, e, cellOf, route) {
   const offset = shift ? `<mxPoint x="${fmt(route.labelOffset.x)}" y="${fmt(route.labelOffset.y)}" as="offset"/>` : '';
   const geo = `<mxGeometry${labelAt} relative="1" as="geometry"><Array as="points">${points}</Array>${offset}</mxGeometry>`;
   const id = `${pid}~edge-${enc(e.from)}-${enc(e.to)}-${e.kind}`;
-  return `<mxCell id="${escXml(id)}" value="${escXml(labelHtml)}" style="${style}" edge="1" parent="1" source="${escXml(cellOf(e.from))}" target="${escXml(cellOf(e.to))}">${geo}</mxCell>`;
+  return `<mxCell id="${escXml(id)}" value="${escXml(labelHtml)}" style="${style}" edge="1" parent="${escXml(use ? useLayerId(pid) : '1')}" source="${escXml(cellOf(e.from))}" target="${escXml(cellOf(e.to))}">${geo}</mxCell>`;
 }
 
 function legendCells(pid, lineKinds, boxKinds, y) {
@@ -977,21 +1122,40 @@ function pageXml(pid, name, title, entries, ctx, allLayers, stats) {
       }),
     );
     for (const g of band.groups) {
-      soft.push({ x: g.ax, y: g.ay, w: textWidth(g.label, FONT, true) + 10, h: 20 });
+      // The group cell is the border of the group. Its label sits at the top left.
+      soft.push({ x: g.ax, y: g.ay, w: textWidth(g.label, FONT, true) + 20, h: 24 });
       cells.push(
         vertexXml({
           id: groupCellId(pid, g.key),
           label: escHtml(g.label),
-          style: `text;html=1;whiteSpace=nowrap;align=left;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=${layer.stroke};strokeColor=none;fillColor=none;`,
+          style: `rounded=0;html=1;whiteSpace=nowrap;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;fontSize=12;fontStyle=1;fontColor=${layer.stroke};strokeColor=${layer.stroke};strokeWidth=1;fillColor=none;`,
           parent: bandId,
           x: g.ax,
           y: g.ay - band.y,
           w: g.w,
-          h: 20,
+          h: g.h,
           data: { role: 'group' },
         }),
       );
-      for (const it of g.items) {
+      for (const f of g.frames) {
+        const title = frameTitle(f.view);
+        soft.push({ x: f.ax, y: f.ay, w: textWidth(title, 11, true) + 20, h: 22 });
+        cells.push(
+          vertexXml({
+            id: `${groupCellId(pid, g.key)}~frame-${enc(f.view)}`,
+            label: escHtml(title),
+            style: `rounded=1;absoluteArcSize=1;arcSize=12;html=1;whiteSpace=nowrap;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fontSize=11;fontStyle=1;fontColor=${layer.stroke};strokeColor=${mix(layer.stroke, layer.fill, 0.4)};strokeWidth=1;fillColor=${mix(layer.fill, '#ffffff', 0.6)};`,
+            parent: bandId,
+            x: f.ax,
+            y: f.ay - band.y,
+            w: f.w,
+            h: f.h,
+            data: { role: 'frame', view: f.view },
+          }),
+        );
+      }
+      // The boxes of a framed group follow the frame order, so a fixed order that pin.mjs reads gives the same file.
+      for (const it of g.frames.length ? g.frames.flatMap((f) => f.items) : g.items) {
         const t = it.entry.type;
         const isRef = it.entry.role === 'ref';
         const rect = { x: it.ax, y: it.ay, w: it.w, h: it.h, owner: t.id, kind: 'box' };
@@ -1029,7 +1193,10 @@ function pageXml(pid, name, title, entries, ctx, allLayers, stats) {
   const bounds = { x: -ROUTE_MARGIN, y: -ROUTE_MARGIN, w: pageW + 2 * ROUTE_MARGIN, h: placed.bottom + 2 * ROUTE_MARGIN };
   const routes = routeEdges(edges, rects, hard, soft, bounds);
   placeLabels(edges, routes, hard, soft, edgeLabel, stats);
-  for (const e of edges) cells.push(edgeXml(pid, e, cellOf, routes.get(`${e.from}|${e.to}|${e.kind}`)));
+  // The structure lines come first, then the use lines of the use layer.
+  for (const e of [...edges.filter((x) => x.kind !== 'use'), ...edges.filter((x) => x.kind === 'use')]) {
+    cells.push(edgeXml(pid, e, cellOf, routes.get(`${e.from}|${e.to}|${e.kind}`)));
+  }
 
   return [
     `  <diagram id="${escXml(pid)}" name="${escXml(name)}">`,
@@ -1037,6 +1204,7 @@ function pageXml(pid, name, title, entries, ctx, allLayers, stats) {
     '      <root>',
     '        <mxCell id="0"/>',
     '        <mxCell id="1" parent="0"/>',
+    `        <mxCell id="${escXml(useLayerId(pid))}" value="${USE_LAYER}" parent="0"/>`,
     ...cells.map((c) => `        ${c}`),
     '      </root>',
     '    </mxGraphModel>',

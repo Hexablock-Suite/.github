@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { absBoxes, parseXml, readPages } from '../check.mjs';
+import { absBoxes, labelText, parseXml, readPages } from '../check.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MINI = path.join(DIR, 'fixtures', 'mini.model.json');
@@ -197,4 +197,113 @@ test('check.mjs accepts an operation with a destructured parameter that has a ty
   const r = run('check.mjs', [out, modelFile]);
   assert.equal(r.status, 0, r.stdout);
   assert.match(r.stdout, /0 violations/);
+});
+
+// bigModel adds 14 classes of two views and one long type alias to the engine group of the mini model.
+// The engine group then holds 19 boxes, so it is a large group.
+// The view engine-overview draws 14 of the 19 boxes, more than half, so it is an overview and no home.
+// extra adds that many small classes to a second large group, src/application/extra in layer 2.
+function bigModel(extra = 0) {
+  const model = JSON.parse(readFileSync(MINI, 'utf8'));
+  const base = { abstract: false, status: 'code', sprint: null, stereotypes: [], layer: 1, part: 'core', line: 1, typeParams: [], attrs: [], values: [], alias: null, requirement: null };
+  for (let k = 1; k <= 14; k += 1) {
+    const ops = [{ vis: '+', name: 'value', typeParams: [], params: [], ret: 'number', abstract: false, static: false }];
+    if (k === 1) {
+      ops.push({ vis: '+', name: 'restore', typeParams: [], params: ['key: ProgressKey', 'highScore: Score | null', 'updatedAt: SyncInstant', 'results: readonly LevelResult[]', 'more: readonly LevelResult[]'], ret: 'PlayerProgress', abstract: false, static: false });
+    }
+    model.types.push({ ...base, id: `Cell${k}`, name: `Cell${k}`, kind: 'class', file: `src/domain/engine/cell${k}.ts`, ops, views: ['engine-overview', k % 2 ? 'engine-a' : 'engine-b'] });
+  }
+  const alias = `| ${Array.from({ length: 6 }, (_, k) => `{ readonly useCase: string; readonly outcome: 'failure-${k}'; readonly kind: string }`).join(' | ')}`;
+  model.types.push({ ...base, id: 'LongEntry', name: 'LongEntry', kind: 'type', file: 'src/domain/engine/long-entry.ts', ops: [], alias, views: [] });
+  for (let k = 1; k <= extra; k += 1) {
+    const ops = [{ vis: '+', name: 'handle', typeParams: [], params: ['request: MoveRequest'], ret: 'void', abstract: false, static: false }];
+    model.types.push({ ...base, id: `Extra${k}`, name: `Extra${k}`, kind: 'class', layer: 2, file: `src/application/extra/extra${k}.ts`, ops, views: [] });
+  }
+  model.edges.push({ from: 'Cell1', to: 'Engine', kind: 'use', label: 'run()', pattern: null, status: 'code', views: [] });
+  model.edges.push({ from: 'Cell2', to: 'Cell1', kind: 'use', label: null, pattern: null, status: 'code', views: [] });
+  return model;
+}
+
+function generateBig(extra = 0) {
+  const modelFile = writeJson('big.model.json', bigModel(extra));
+  const out = tmp('big.drawio');
+  const r = run('gen.mjs', [modelFile, out]);
+  assert.equal(r.status, 0, r.stderr);
+  return { modelFile, out };
+}
+
+const inside = (b, r) => b.x >= r.x && b.y >= r.y && b.x + b.w <= r.x + r.w && b.y + b.h <= r.y + r.h;
+
+test('S8: use lines recede into their own layer, and structure lines stay strong', () => {
+  const { out } = generate();
+  const { page } = page1(out);
+  const layer = page.cells.get('all-classes~layer-use');
+  assert.ok(layer, 'page 1 has a use layer');
+  assert.equal(layer.parent, '0');
+  assert.equal(layer.value, 'use lines');
+  assert.equal(layer.vertex, undefined);
+  const edges = [...page.cells.values()].filter((c) => c.edge === '1');
+  const use = edges.filter((c) => c.id.endsWith('-use'));
+  const structure = edges.filter((c) => /-(extends|implements|composition)$/.test(c.id));
+  assert.ok(use.length && structure.length);
+  for (const c of use) {
+    assert.equal(c.parent, 'all-classes~layer-use', c.id);
+    assert.equal(c.styleMap.strokeWidth, '1', c.id);
+    assert.equal(c.styleMap.fontSize, '10', c.id);
+    assert.notEqual(c.styleMap.strokeColor, '#1f2937', c.id);
+    assert.notEqual(c.styleMap.dashed, '1', c.id);
+  }
+  for (const c of structure) {
+    assert.equal(c.parent, '1', c.id);
+    assert.equal(c.styleMap.strokeWidth, '2', c.id);
+    assert.equal(c.styleMap.fontSize, '11', c.id);
+  }
+  const c = run('check.mjs', [out, MINI]);
+  assert.equal(c.status, 0, c.stdout);
+});
+
+test('S8: a large group puts the boxes of one view in a frame with the view title', () => {
+  const { modelFile, out } = generateBig();
+  const { page, boxes } = page1(out);
+  const frames = [...page.cells.values()].filter((c) => c.data.role === 'frame');
+  const byView = new Map(frames.map((f) => [f.data.view, f]));
+  assert.ok(byView.has('engine-a') && byView.has('engine-b'), frames.map((f) => f.data.view).join());
+  assert.match(labelText(byView.get('engine-a').label), /engine-a/);
+  for (let k = 1; k <= 14; k += 1) {
+    const frame = byView.get(k % 2 ? 'engine-a' : 'engine-b');
+    assert.ok(inside(boxes.get(`all-classes~type-Cell${k}`), boxes.get(frame.id)), `Cell${k} sits in its frame`);
+  }
+  // A small group gets no frame.
+  assert.ok(frames.every((f) => f.parent === 'all-classes~band-1'));
+  const c = run('check.mjs', [out, modelFile]);
+  assert.equal(c.status, 0, c.stdout);
+  // pin.mjs ignores the frames: the round trip keeps the bytes.
+  const layout = tmp('layout.json');
+  const p = run('pin.mjs', [out, modelFile, layout]);
+  assert.equal(p.status, 0, p.stderr);
+  assert.equal(p.stderr, '');
+  const again = tmp('again.drawio');
+  assert.equal(run('gen.mjs', [modelFile, again, '--layout', layout]).status, 0);
+  assert.ok(readFileSync(again).equals(readFileSync(out)));
+});
+
+test('S8: a large group uses the width of its band and packs its boxes in columns', () => {
+  // The 60 extra classes make the page wider than the engine group needs.
+  const { out } = generateBig(60);
+  const { boxes } = page1(out);
+  const band = boxes.get('all-classes~band-1');
+  for (const key of [ENGINE_GROUP, 'core|src/application/extra']) assert.equal(boxes.get(groupCell(key)).w, band.w - 2 * 48, key);
+  const xs = new Set();
+  for (let k = 1; k <= 14; k += 1) xs.add(boxes.get(`all-classes~type-Cell${k}`).x);
+  assert.ok(xs.size >= 3, `the 14 boxes use ${xs.size} columns`);
+});
+
+test('S8: a long type alias and a long operation wrap, so the box stays narrow', () => {
+  const { modelFile, out } = generateBig();
+  const { boxes } = page1(out);
+  assert.ok(boxes.get('all-classes~type-LongEntry').w <= 520, `LongEntry is ${boxes.get('all-classes~type-LongEntry').w} wide`);
+  assert.ok(boxes.get('all-classes~type-Cell1').w <= 520, `Cell1 is ${boxes.get('all-classes~type-Cell1').w} wide`);
+  // check (e) reads a wrapped operation as one operation.
+  const c = run('check.mjs', [out, modelFile]);
+  assert.equal(c.status, 0, c.stdout);
 });
