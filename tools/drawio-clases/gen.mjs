@@ -1286,6 +1286,68 @@ export function generate(model, stats = { labelsOnBoxes: 0, labelsOnLabels: 0 },
   return ['<?xml version="1.0" encoding="UTF-8"?>', '<mxfile host="drawio-clases" compressed="false">', ...pages, '</mxfile>', ''].join('\n');
 }
 
+// InputError is a problem with a file that a person names on the command line.
+// A command prints its message as one line and ends with exit code 1.
+export class InputError extends Error {}
+
+// readText returns the text of the file. what names the file in the message, for example "layout file".
+export function readText(file, what) {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch (e) {
+    throw new InputError(`cannot read the ${what} ${file}: ${e.code === 'ENOENT' ? 'the file does not exist' : (e.code ?? e.message)}`);
+  }
+}
+
+// readJson returns the parsed JSON (JavaScript Object Notation) of the file.
+export function readJson(file, what) {
+  const text = readText(file, what);
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new InputError(`the ${what} ${file} is not JSON: ${String(e.message).split('\n')[0]}`);
+  }
+}
+
+// runCommand runs main and gives its exit code. An InputError becomes one error line and exit code 1.
+export function runCommand(main, argv) {
+  try {
+    return main(argv);
+  } catch (e) {
+    if (!(e instanceof InputError)) throw e;
+    console.error(`error: ${e.message}`);
+    return 1;
+  }
+}
+
+const isRecord = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+// layoutProblem returns the first part of a layout that does not have the shape of MODEL.md, or null.
+function layoutProblem(layout) {
+  if (!isRecord(layout)) return 'the file must hold one object';
+  if (!isRecord(layout.pages)) return '"pages" must be an object with one entry per page';
+  for (const [pid, byLayer] of Object.entries(layout.pages)) {
+    if (!isRecord(byLayer)) return `page "${pid}" must be an object with one entry per layer`;
+    for (const [layer, groups] of Object.entries(byLayer)) {
+      if (!Array.isArray(groups)) return `layer "${layer}" of page "${pid}" must be a list of groups`;
+      for (const entry of groups) {
+        if (!isRecord(entry) || typeof entry.group !== 'string') return `each entry of layer "${layer}" of page "${pid}" needs a "group" text`;
+        const types = entry.types ?? [];
+        if (!Array.isArray(types) || types.some((t) => typeof t !== 'string')) return `"types" of group "${entry.group}" must be a list of type ids`;
+      }
+    }
+  }
+  return null;
+}
+
+// readLayout returns the parsed layout file. It throws an InputError when the file has another shape.
+function readLayout(file) {
+  const layout = readJson(file, 'layout file');
+  const problem = layoutProblem(layout);
+  if (problem) throw new InputError(`the layout file ${file} has another shape: ${problem}`);
+  return layout;
+}
+
 function main(argv) {
   const li = argv.indexOf('--layout');
   const layoutPath = li >= 0 ? argv[li + 1] : null;
@@ -1295,8 +1357,8 @@ function main(argv) {
     return 2;
   }
   const [modelPath, out] = rest;
-  const model = JSON.parse(readFileSync(modelPath, 'utf8'));
-  const layout = layoutPath ? JSON.parse(readFileSync(layoutPath, 'utf8')) : null;
+  const model = readJson(modelPath, 'model file');
+  const layout = layoutPath ? readLayout(layoutPath) : null;
   const stats = { labelsOnBoxes: 0, labelsOnLabels: 0 };
   const warnings = [];
   const text = generate(model, stats, layout, warnings);
@@ -1309,5 +1371,5 @@ function main(argv) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = runCommand(main, process.argv.slice(2));
 }

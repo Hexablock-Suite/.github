@@ -307,3 +307,42 @@ test('S8: a long type alias and a long operation wrap, so the box stays narrow',
   const c = run('check.mjs', [out, modelFile]);
   assert.equal(c.status, 0, c.stdout);
 });
+
+// A person types the layout path by hand. A wrong path or a wrong file gets one plain line, not a stack trace.
+const oneErrorLine = (r) => {
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(lines(r.stderr).length, 1, r.stderr);
+  assert.match(r.stderr, /^error: /);
+};
+
+test('S1: a layout file that does not exist stops gen.mjs with one error line, and gen.mjs writes no file', () => {
+  const out = tmp('no-layout.drawio');
+  const r = run('gen.mjs', [MINI, out, '--layout', tmp('missing.layout.json')]);
+  oneErrorLine(r);
+  assert.match(r.stderr, /missing\.layout\.json/);
+  assert.throws(() => readFileSync(out), /ENOENT/);
+});
+
+test('S1: a layout file with another shape stops gen.mjs with one error line that names the wrong part', () => {
+  for (const [text, part] of [
+    ['{"pages":5}', /"pages"/],
+    ['{"pages":{"all-classes":{"1":[{"types":["Engine"]}]}}}', /"group"/],
+    ['not json', /JSON/],
+  ]) {
+    const layoutFile = tmp('bad.layout.json');
+    writeFileSync(layoutFile, text);
+    const out = tmp('bad-layout.drawio');
+    const r = run('gen.mjs', [MINI, out, '--layout', layoutFile]);
+    oneErrorLine(r);
+    assert.match(r.stderr, part);
+    assert.throws(() => readFileSync(out), /ENOENT/);
+  }
+});
+
+test('S2: a .drawio file that does not exist stops pin.mjs with one error line, and pin.mjs writes no file', () => {
+  const out = tmp('no-pin.layout.json');
+  const r = run('pin.mjs', [tmp('missing.drawio'), MINI, out]);
+  oneErrorLine(r);
+  assert.match(r.stderr, /missing\.drawio/);
+  assert.throws(() => readFileSync(out), /ENOENT/);
+});

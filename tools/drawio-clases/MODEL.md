@@ -96,7 +96,8 @@ Rules:
    A type that the model has and the layout does not name comes after the named types of its group, in the computed order.
 4. The model decides the group of a type. A layout entry cannot move a type to another group.
    The model also decides the view frame of a type in a large group (README, «Pages»). The frames follow the first appearance of their view in the box order of the group.
-5. With no layout file, `gen.mjs` writes the same bytes as before the layout option existed.
+5. With no layout file, `gen.mjs` uses the computed order. The same model and the same layout file give the same bytes in every run.
+6. A layout file that is missing, is not JSON, or has another shape than this section gives stops `gen.mjs`. `gen.mjs` prints one `error:` line, writes no file and ends with exit code 1.
 
 ## Invariants
 

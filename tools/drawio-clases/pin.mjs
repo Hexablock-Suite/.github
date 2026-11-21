@@ -5,10 +5,10 @@
 // The model gives the group of each box. A box that sits outside that group stays in it:
 // pin.mjs leaves the box out of the layout and prints one warning, and gen.mjs puts the box after the fixed boxes of its group.
 // The layout keeps order only. gen.mjs computes the positions, the gaps and the lines again.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { absBoxes, parseXml, readPages } from './check.mjs';
-import { bandCellId, groupCellId, pageGroups, typeCellId } from './gen.mjs';
+import { bandCellId, groupCellId, pageGroups, readJson, readText, runCommand, typeCellId } from './gen.mjs';
 
 // byRows sorts items { x, y, h } by row, then by column.
 // An item joins the current row when its top is above the middle of every item of that row.
@@ -114,9 +114,9 @@ function main(argv) {
     return 2;
   }
   const [file, modelPath, out] = argv;
-  const model = JSON.parse(readFileSync(modelPath, 'utf8'));
+  const model = readJson(modelPath, 'model file');
   const warnings = [];
-  const layout = pin(readFileSync(file, 'utf8'), model, warnings);
+  const layout = pin(readText(file, '.drawio file'), model, warnings);
   for (const w of warnings) console.error(`warning: ${w}`);
   writeFileSync(out, `${JSON.stringify(layout, null, 2)}\n`);
   const groups = Object.values(layout.pages).flatMap((page) => Object.values(page).flat());
@@ -127,5 +127,5 @@ function main(argv) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = runCommand(main, process.argv.slice(2));
 }
