@@ -1,0 +1,939 @@
+{
+  "repo": "mini",
+  "head": "0000000",
+  "parts": [
+    {
+      "id": "core",
+      "title": "Core"
+    },
+    {
+      "id": "shell",
+      "title": "Shell"
+    }
+  ],
+  "types": [
+    {
+      "id": "WebServer",
+      "name": "WebServer",
+      "kind": "class",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 4,
+      "part": "shell",
+      "file": "src/infrastructure/web-server.ts",
+      "line": 3,
+      "typeParams": [],
+      "attrs": [
+        {
+          "vis": "-",
+          "name": "controller",
+          "type": "PlayController",
+          "static": false,
+          "readonly": true,
+          "optional": false
+        }
+      ],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "constructor",
+          "params": [
+            "controller: PlayController"
+          ],
+          "ret": null,
+          "abstract": false,
+          "static": false
+        },
+        {
+          "vis": "+",
+          "name": "listen",
+          "params": [
+            "port: number"
+          ],
+          "ret": "Promise<void>",
+          "abstract": false,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "HomeScreen",
+      "name": "HomeScreen",
+      "kind": "class",
+      "abstract": false,
+      "status": "planned",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 4,
+      "part": "shell",
+      "file": null,
+      "line": null,
+      "typeParams": [],
+      "attrs": [],
+      "ops": [],
+      "values": [],
+      "alias": null,
+      "views": [
+        "map-4-adapters"
+      ],
+      "requirement": null
+    },
+    {
+      "id": "MemoryStore",
+      "name": "MemoryStore",
+      "kind": "class",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 3,
+      "part": "shell",
+      "file": "src/adapters/memory-store.ts",
+      "line": 5,
+      "typeParams": [],
+      "attrs": [
+        {
+          "vis": "-",
+          "name": "saved",
+          "type": "Map<string, string>",
+          "static": false,
+          "readonly": false,
+          "optional": false
+        }
+      ],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "load",
+          "params": [
+            "id: string"
+          ],
+          "ret": "Promise<string | null>",
+          "abstract": false,
+          "static": false
+        },
+        {
+          "vis": "+",
+          "name": "save",
+          "params": [
+            "id: string",
+            "data: string"
+          ],
+          "ret": "Promise<void>",
+          "abstract": false,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "PlayController",
+      "name": "PlayController",
+      "kind": "class",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 3,
+      "part": "shell",
+      "file": "src/adapters/play.controller.ts",
+      "line": 8,
+      "typeParams": [],
+      "attrs": [
+        {
+          "vis": "-",
+          "name": "play",
+          "type": "PlayGame",
+          "static": false,
+          "readonly": true,
+          "optional": false
+        }
+      ],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "move",
+          "params": [
+            "body: MoveDto"
+          ],
+          "ret": "Promise<Outcome>",
+          "abstract": false,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "MoveDto",
+      "name": "MoveDto",
+      "kind": "class",
+      "abstract": false,
+      "status": "planned",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 3,
+      "part": "shell",
+      "file": null,
+      "line": null,
+      "typeParams": [],
+      "attrs": [
+        {
+          "vis": "+",
+          "name": "cell",
+          "type": "number",
+          "static": false,
+          "readonly": false,
+          "optional": false
+        }
+      ],
+      "ops": [],
+      "values": [],
+      "alias": null,
+      "views": [
+        "ad-1-http"
+      ],
+      "requirement": null
+    },
+    {
+      "id": "LoggingAspect",
+      "name": "LoggingAspect",
+      "kind": "class",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [
+        "Decorator"
+      ],
+      "layer": 2,
+      "part": "core",
+      "file": "src/application/aspects/logging-aspect.ts",
+      "line": 4,
+      "typeParams": [
+        {
+          "name": "TReq",
+          "constraint": null,
+          "default": null
+        },
+        {
+          "name": "TRes",
+          "constraint": null,
+          "default": null
+        }
+      ],
+      "attrs": [
+        {
+          "vis": "-",
+          "name": "inner",
+          "type": "UseCase<TReq, TRes>",
+          "static": false,
+          "readonly": true,
+          "optional": false
+        }
+      ],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "execute",
+          "params": [
+            "request: TReq"
+          ],
+          "ret": "Promise<TRes>",
+          "abstract": false,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "GameStore",
+      "name": "GameStore",
+      "kind": "interface",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [
+        "port"
+      ],
+      "layer": 2,
+      "part": "core",
+      "file": "src/application/game-store.ts",
+      "line": 1,
+      "typeParams": [],
+      "attrs": [],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "load",
+          "params": [
+            "id: string"
+          ],
+          "ret": "Promise<string | null>",
+          "abstract": true,
+          "static": false
+        },
+        {
+          "vis": "+",
+          "name": "save",
+          "params": [
+            "id: string",
+            "data: string"
+          ],
+          "ret": "Promise<void>",
+          "abstract": true,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "MoveRequest",
+      "name": "MoveRequest",
+      "kind": "interface",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [
+        "interface",
+        "dataType"
+      ],
+      "layer": 2,
+      "part": "core",
+      "file": "src/application/play-game.ts",
+      "line": 4,
+      "typeParams": [],
+      "attrs": [
+        {
+          "vis": "+",
+          "name": "cell",
+          "type": "number",
+          "static": false,
+          "readonly": true,
+          "optional": false
+        }
+      ],
+      "ops": [],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "PlayGame",
+      "name": "PlayGame",
+      "kind": "class",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 2,
+      "part": "core",
+      "file": "src/application/play-game.ts",
+      "line": 12,
+      "typeParams": [],
+      "attrs": [
+        {
+          "vis": "-",
+          "name": "store",
+          "type": "GameStore",
+          "static": false,
+          "readonly": true,
+          "optional": false
+        },
+        {
+          "vis": "-",
+          "name": "engine",
+          "type": "Engine<LinesState>",
+          "static": false,
+          "readonly": true,
+          "optional": false
+        }
+      ],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "execute",
+          "params": [
+            "request: MoveRequest"
+          ],
+          "ret": "Promise<Outcome>",
+          "abstract": false,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": "MINI-FR-01"
+    },
+    {
+      "id": "UseCase",
+      "name": "UseCase",
+      "kind": "interface",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 2,
+      "part": "core",
+      "file": "src/application/use-case.ts",
+      "line": 1,
+      "typeParams": [
+        {
+          "name": "TReq",
+          "constraint": null,
+          "default": null
+        },
+        {
+          "name": "TRes",
+          "constraint": null,
+          "default": null
+        }
+      ],
+      "attrs": [],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "execute",
+          "params": [
+            "request: TReq"
+          ],
+          "ret": "Promise<TRes>",
+          "abstract": true,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "Engine",
+      "name": "Engine",
+      "kind": "class",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [
+        "aggregate root"
+      ],
+      "layer": 1,
+      "part": "core",
+      "file": "src/domain/engine/engine.ts",
+      "line": 20,
+      "typeParams": [
+        {
+          "name": "TState",
+          "constraint": "BoardState",
+          "default": null
+        }
+      ],
+      "attrs": [
+        {
+          "vis": "-",
+          "name": "rules",
+          "type": "Rules<TState>",
+          "static": false,
+          "readonly": true,
+          "optional": false
+        },
+        {
+          "vis": "-",
+          "name": "phase",
+          "type": "Phase",
+          "static": false,
+          "readonly": false,
+          "optional": false
+        },
+        {
+          "vis": "-",
+          "name": "history",
+          "type": "MoveHistory",
+          "static": false,
+          "readonly": false,
+          "optional": true,
+          "planned": true,
+          "sprint": "Sprint 3"
+        }
+      ],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "play",
+          "params": [
+            "move: Move"
+          ],
+          "ret": "Outcome",
+          "abstract": false,
+          "static": false
+        },
+        {
+          "vis": "+",
+          "name": "undo",
+          "params": [],
+          "ret": "void",
+          "abstract": false,
+          "static": false,
+          "planned": true,
+          "sprint": "Sprint 3"
+        },
+        {
+          "vis": "+",
+          "name": "redo",
+          "params": [],
+          "ret": "void",
+          "abstract": false,
+          "static": false,
+          "planned": true,
+          "sprint": null
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "Outcome",
+      "name": "Outcome",
+      "kind": "union",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 1,
+      "part": "core",
+      "file": "src/domain/engine/outcome.ts",
+      "line": 1,
+      "typeParams": [],
+      "attrs": [],
+      "ops": [],
+      "values": [
+        "\"won\"",
+        "\"lost\"",
+        "\"playing\""
+      ],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "Phase",
+      "name": "Phase",
+      "kind": "class",
+      "abstract": true,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [
+        "State"
+      ],
+      "layer": 1,
+      "part": "core",
+      "file": "src/domain/engine/phase.ts",
+      "line": 2,
+      "typeParams": [],
+      "attrs": [],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "next",
+          "params": [
+            "outcome: Outcome"
+          ],
+          "ret": "Phase",
+          "abstract": true,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "Rules",
+      "name": "Rules",
+      "kind": "interface",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [
+        "Strategy"
+      ],
+      "layer": 1,
+      "part": "core",
+      "file": "src/domain/engine/rules.ts",
+      "line": 1,
+      "typeParams": [
+        {
+          "name": "TState",
+          "constraint": "BoardState",
+          "default": null
+        }
+      ],
+      "attrs": [],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "apply",
+          "params": [
+            "state: TState",
+            "move: Move"
+          ],
+          "ret": "TState",
+          "abstract": true,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "BaseRules",
+      "name": "BaseRules",
+      "kind": "class",
+      "abstract": true,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 1,
+      "part": "core",
+      "file": "src/domain/rules/base-rules.ts",
+      "line": 3,
+      "typeParams": [],
+      "attrs": [],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "apply",
+          "params": [
+            "state: LinesState",
+            "move: Move"
+          ],
+          "ret": "LinesState",
+          "abstract": false,
+          "static": false
+        },
+        {
+          "vis": "#",
+          "name": "score",
+          "params": [
+            "lines: number"
+          ],
+          "ret": "number",
+          "abstract": true,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "Color",
+      "name": "Color",
+      "kind": "enum",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 1,
+      "part": "core",
+      "file": "src/domain/rules/color.ts",
+      "line": 1,
+      "typeParams": [],
+      "attrs": [],
+      "ops": [],
+      "values": [
+        "Red",
+        "Blue"
+      ],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "LinesRules",
+      "name": "LinesRules",
+      "kind": "class",
+      "abstract": false,
+      "status": "code",
+      "sprint": null,
+      "stereotypes": [],
+      "layer": 1,
+      "part": "core",
+      "file": "src/domain/rules/lines-rules.ts",
+      "line": 6,
+      "typeParams": [],
+      "attrs": [],
+      "ops": [
+        {
+          "vis": "#",
+          "name": "score",
+          "params": [
+            "lines: number"
+          ],
+          "ret": "number",
+          "abstract": false,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [],
+      "requirement": null
+    },
+    {
+      "id": "MoveHistory",
+      "name": "MoveHistory",
+      "kind": "class",
+      "abstract": false,
+      "status": "planned",
+      "sprint": "Sprint 3",
+      "stereotypes": [
+        "Command"
+      ],
+      "layer": 1,
+      "part": "core",
+      "file": null,
+      "line": null,
+      "typeParams": [],
+      "attrs": [
+        {
+          "vis": "-",
+          "name": "done",
+          "type": "MoveCommand[]",
+          "static": false,
+          "readonly": false,
+          "optional": false
+        }
+      ],
+      "ops": [
+        {
+          "vis": "+",
+          "name": "push",
+          "params": [
+            "command: MoveCommand"
+          ],
+          "ret": "void",
+          "abstract": false,
+          "static": false
+        },
+        {
+          "vis": "+",
+          "name": "pop",
+          "params": [],
+          "ret": "MoveCommand | null",
+          "abstract": false,
+          "static": false
+        }
+      ],
+      "values": [],
+      "alias": null,
+      "views": [
+        "engine-3-history"
+      ],
+      "requirement": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "BaseRules",
+      "to": "Rules",
+      "kind": "implements",
+      "label": null,
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "Engine",
+      "to": "MoveHistory",
+      "kind": "composition",
+      "label": "history 0..1",
+      "pattern": "Command",
+      "status": "planned",
+      "views": [
+        "engine-3-history"
+      ]
+    },
+    {
+      "from": "Engine",
+      "to": "Outcome",
+      "kind": "use",
+      "label": "play()",
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "Engine",
+      "to": "Phase",
+      "kind": "composition",
+      "label": "phase 1",
+      "pattern": "State",
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "Engine",
+      "to": "Rules",
+      "kind": "aggregation",
+      "label": "rules 1",
+      "pattern": "Strategy",
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "LinesRules",
+      "to": "BaseRules",
+      "kind": "extends",
+      "label": null,
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "LinesRules",
+      "to": "Color",
+      "kind": "use",
+      "label": "«create»",
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "LoggingAspect",
+      "to": "UseCase",
+      "kind": "aggregation",
+      "label": "inner 1",
+      "pattern": "Decorator",
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "LoggingAspect",
+      "to": "UseCase",
+      "kind": "implements",
+      "label": null,
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "MemoryStore",
+      "to": "GameStore",
+      "kind": "implements",
+      "label": null,
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "Phase",
+      "to": "Outcome",
+      "kind": "use",
+      "label": "next()",
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "PlayController",
+      "to": "MoveDto",
+      "kind": "use",
+      "label": "move()",
+      "pattern": null,
+      "status": "planned",
+      "views": [
+        "ad-1-http"
+      ]
+    },
+    {
+      "from": "PlayController",
+      "to": "PlayGame",
+      "kind": "use",
+      "label": "play 1",
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "PlayGame",
+      "to": "Engine",
+      "kind": "use",
+      "label": "engine 1",
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "PlayGame",
+      "to": "GameStore",
+      "kind": "use",
+      "label": "store 1",
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "PlayGame",
+      "to": "MoveRequest",
+      "kind": "use",
+      "label": "execute()",
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "PlayGame",
+      "to": "UseCase",
+      "kind": "implements",
+      "label": null,
+      "pattern": null,
+      "status": "code",
+      "views": []
+    },
+    {
+      "from": "WebServer",
+      "to": "HomeScreen",
+      "kind": "use",
+      "label": "«create»",
+      "pattern": null,
+      "status": "planned",
+      "views": [
+        "map-4-adapters"
+      ]
+    },
+    {
+      "from": "WebServer",
+      "to": "PlayController",
+      "kind": "use",
+      "label": "controller 1",
+      "pattern": null,
+      "status": "code",
+      "views": []
+    }
+  ]
+}

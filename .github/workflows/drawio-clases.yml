@@ -1,0 +1,31 @@
+name: drawio-clases
+
+# Runs the tests of the class diagram tool. The tool uses Node built-ins only, so no install step runs.
+on:
+  pull_request:
+    paths:
+      - 'tools/drawio-clases/**'
+      - '.github/workflows/drawio-clases.yml'
+  push:
+    paths:
+      - 'tools/drawio-clases/**'
+      - '.github/workflows/drawio-clases.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/drawio-clases
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: node --test

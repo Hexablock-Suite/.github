@@ -1,0 +1,230 @@
+# drawio-clases
+
+This tool draws the class model of one HexaBlock repository as one draw.io file.
+Page 1 shows every class, interface and type in four Clean layer bands.
+Each next page shows one part of the model.
+All pages come from one model, so they do not contradict each other.
+
+[`MODEL.md`](MODEL.md) is the contract between the scripts.
+It defines the model JSON: types, edges, layers and parts.
+Change `MODEL.md` before you change the shape of the model.
+
+The tool lives in `tools/drawio-clases/` of the organization repository `Hexablock-Suite/.github`.
+Each HexaBlock repository keeps its own files in `docs/architecture/`:
+
+| File | Content |
+|---|---|
+| `classes.drawio` | the diagram that `gen.mjs` writes |
+| `classes.config.json` | the config of `merge.mjs`: folders and views to layers and parts, patterns, stereotypes |
+| `classes.layout.json` | the layout file: the fixed order of groups and boxes (`MODEL.md`, «Layout file») |
+
+## Quick start
+
+You need Node 24 and a clone of the target repository with its dependencies installed (`merge.mjs` loads its `typescript`).
+The `src/` of that clone must have no uncommitted change, because the model comes from `HEAD`.
+In the commands, `<repo>` is the root of that clone and `<out>` is a scratch directory outside it.
+
+1. Clone this repository and go to the tool.
+
+   ```sh
+   git clone https://github.com/Hexablock-Suite/.github.git hexablock-github
+   cd hexablock-github/tools/drawio-clases
+   ```
+
+2. Generate the diagram of one repository. Leave out `--layout` when the repository has no `classes.layout.json` yet.
+
+   ```sh
+   node merge.mjs <repo> <out>
+   node gen.mjs <out>/<repo-name>.model.json <repo>/docs/architecture/classes.drawio --layout <repo>/docs/architecture/classes.layout.json
+   ```
+
+3. Open `classes.drawio` in draw.io. Drag the boxes inside their group, or drag whole groups inside their band, into the order you want.
+   Save the file uncompressed: keep «Compressed» off in File > Properties.
+
+4. Pin the order of your edit into the layout file.
+
+   ```sh
+   node pin.mjs <repo>/docs/architecture/classes.drawio <out>/<repo-name>.model.json <repo>/docs/architecture/classes.layout.json
+   ```
+
+5. Generate again, with the command of step 2. `gen.mjs` now keeps your order and draws clean lines.
+
+6. Check the result. Exit 0 means no violation.
+
+   ```sh
+   node check.mjs <repo>/docs/architecture/classes.drawio <out>/<repo-name>.model.json
+   ```
+
+Commit `classes.drawio` and `classes.layout.json` together in the target repository.
+
+### Which hand edits survive
+
+| Survives the next generation | Does not survive |
+|---|---|
+| the order of the groups in a band | the pixel position of a box or a group |
+| the order of the boxes in a group, read row by row, then left to right | the gaps and the row breaks: `gen.mjs` wraps the boxes into rows again |
+| | the view frames: `gen.mjs` draws them again; the box order sets the frame order (see «Pages») |
+| | the line routes and the label positions |
+| | a box moved to another group: it stays in the group that the model gives it, after the pinned boxes, and `pin.mjs` prints a warning |
+| | a change of text, style or size |
+
+The layout keeps order only, because a fixed position breaks when a new class arrives, and the router cannot route around an enclosed box.
+
+## Order
+
+| Step | Script | Input | Output |
+|---|---|---|---|
+| 1 | `extract.mjs` | the `src/` of the repository at `head` | code types and code edges |
+| 2 | `views.mjs` | the class views of `docs/architecture/` | planned types, planned members and view edges |
+| 3 | `merge.mjs` | the output of steps 1 and 2 | one model in the shape of `MODEL.md` |
+| 4 | `gen.mjs` | the model and the optional layout file | one uncompressed multi-page `.drawio` file |
+| 5 | `check.mjs` | the `.drawio` file and the model | the notation violations, exit 1 when there is one |
+| 6 | `render.mjs` | the `.drawio` file | one PNG per page, for a visual look |
+| - | `pin.mjs` | a `.drawio` file that a person edited, and the model | the layout file |
+
+## Commands
+
+```sh
+node merge.mjs <repo-root> <out-dir> [--config <config.json>]
+node merge.mjs --check <model.json>
+node gen.mjs <model.json> <out.drawio> [--layout <layout.json>]
+node pin.mjs <edited.drawio> <model.json> <layout.json>
+node check.mjs <out.drawio> <model.json> [<config.json>]
+node render.mjs <out.drawio> <png-dir>
+```
+
+`merge.mjs` reads `<repo-root>/docs/architecture/classes.config.json` when no `--config` is given.
+`check.mjs` reads `classes.config.json` next to the `.drawio` file when no config is given, for the stereotypes of `stereotypeFor`.
+For a diagram at `docs/architecture/classes.drawio`, that is the same file that `merge.mjs` reads.
+`gen.mjs` prints one `warning:` line on stderr for each page, group or type of the layout file that the model does not have, and exits 0.
+`pin.mjs` prints one `warning:` line on stderr for each box that sits outside its group, and exits 0.
+`merge.mjs` lists the code types with no operation, and their stereotypes, under «Types with no operation» in `planned-report-<repo>.md`.
+The tools use Node built-ins only.
+`gen.mjs` writes no timestamp and no random id, so the same model always gives the same bytes.
+
+## Pages
+
+- Page 1, «All classes», has a band for each layer: layer 4 at the top, layer 1 at the bottom, so every dependency points down.
+  A band groups its types by part, then by source folder. A planned type sits in the group «<part> · planned».
+  A group has a thin border and its label at the top left.
+- A group with 12 boxes or more is large. A large group, and a group alone in its band, takes the full width of the band.
+- Inside a large group of class boxes, the boxes of one view sit in one frame. The frame title names the view, for example `view engine-1-turn`.
+  Each type has one home view: the view of its `views` array that the most boxes of the group share. A tie goes to the first view name.
+  A view that draws more than half of the boxes of the group is an overview, such as `overview-engine`. A type goes to it only when it has no other view.
+  A type with no view sits in the frame `in no view`. A view that is home to one box only goes to the frame `other views`.
+  A group with one frame only gets no frame. A group of reference boxes gets no frame.
+  The frames follow the first box of each frame in the box order, and each frame keeps the box order. So the layout file also orders the frames.
+  The frames of a group aim at one height and stand side by side, like columns. A frame is as wide as the area of its boxes needs.
+  A frame is not a container: a box stays a child of its band.
+- Page 2 and the next pages show one part each, in the order of `parts`.
+  A part page shows the types of its part in full.
+  It also shows each type of another part that one of its lines touches, as a grey reference box with the name only.
+  The eyebrow of that box names the page that details the type, for example `PAGE 2 · ENGINE`.
+  The page draws every line between the types it shows.
+- Each page has a legend. The legend lists only the line kinds and box kinds that the page draws.
+
+## Layout and lines
+
+- Inside a group, boxes that share a line sit near each other.
+  Four sweeps sort each group by the mean position of the boxes that its boxes connect to.
+  The bands and the groups keep their order.
+- A layout file fixes the order of the groups of a band and the order of the boxes of a group (`MODEL.md`, «Layout file»).
+  The fixed groups and boxes come first, in the order of the file. The others follow in the computed order.
+- The gaps between boxes, groups and bands are gutters.
+  Two neighbours in a row that share a labelled line get a gap wide enough for the label.
+- A router walks an 8-pixel grid in the gutters and keeps 8 pixels away from every box.
+  Each line leaves its source on one side and enters its target on one side, with a straight stub of 24 pixels for the arrowhead or the diamond.
+  The router pays for length, bends and tracks that other lines already use, so parallel lines take distinct tracks.
+- Each line stores its fixed exit and entry (`exitX`, `exitY`, `entryX`, `entryY`) and its waypoints (`<Array as="points">`) at every bend.
+  draw.io follows the waypoints of an orthogonal edge, so it draws the path of the router.
+- A member line, a literal or a type alias wider than 460 pixels wraps after `, `, `; `, `(`, `{ ` or `<`, or before ` | `.
+  The next part starts with an indent. `<br class="wrap">` marks the soft break, and `check.mjs` reads the parts as one line.
+- The use lines of a page live in the draw.io layer `use lines`, above the default layer. Hide them in Edit > Layers (Ctrl+Shift+L).
+  The structure lines (`extends`, `implements`, `aggregation`, `composition`) stay in the default layer.
+- Each label sits on a segment of its own line, or just beside it, clear of every box.
+  A label that finds no clear place on one line wraps after each `, ` and before each ` · `.
+  `gen.mjs` and `render.mjs` both ignore a touch of 1 pixel or less.
+  `gen.mjs` estimates the text width on the wide side, so its count is never lower than the count of `render.mjs`.
+  `gen.mjs` prints how many labels touch a box or another label.
+
+## Notation
+
+| Element | Drawing |
+|---|---|
+| class box | stereotypes, name (italic when abstract), attributes `+ name: type`, operations `+ name(p: T): R` (italic when abstract) |
+| type parameters | a small dashed box at the top right of the class, with bounds and defaults |
+| union, enum | `«union»` or `«enumeration»` and one literal per line |
+| planned type | dashed border, `«planned»` and its `«Sprint N»` |
+| planned member | its `«Sprint N»`, or `«planned»`, before the member |
+| planned class with no operation | one italic line, `members not designed yet`, in the operation compartment; the tool does not invent members |
+| code class with no operation | the stereotype `«dataType»`: a type that only carries data; the `stereotypeFor` map of the config can name another one, such as `«module»` for a Nest module |
+| long member | wraps into parts; each next part starts with an indent |
+| use | thin (1 px) solid line in a light ink, open arrowhead at the class it needs, label from the model in 10 px; layer `use lines` |
+| implements | dashed line, hollow triangle, 2 px |
+| extends | solid line, hollow triangle, 2 px |
+| aggregation, composition | hollow or filled diamond at the holder, attribute and multiplicity near the far end, 2 px |
+| planned line | the style and width of its kind in grey, and the word `planned` in the label |
+| group | thin border in the layer color, label at the top left |
+| view frame | rounded panel in a light tint of the layer, title `view <name>` |
+
+Every line goes from class cell to class cell. Dashed lines stay reserved for implements.
+The light ink of a use line is darker than the grey of a planned line.
+
+## Cell data
+
+`gen.mjs` wraps each box in a draw.io `<object>`. Its attributes show in draw.io under «Edit Data».
+`check.mjs` and `render.mjs` read them.
+
+| `role` | Cell | Other attributes |
+|---|---|---|
+| `class` | a full class box | `typeId`, `kind`, `status`, `layer` |
+| `ref` | a reference box | `typeId`, `kind`, `status`, `layer` |
+| `tparams` | the type parameter box, a child of its class | `typeId` |
+| `band` | a layer band | `layer` |
+| `group` | the border and label of a group | none |
+| `frame` | the frame of one view inside a large group | `view` |
+| `legend`, `legend-line`, `legend-box` | the legend and its rows | `kind` on a row |
+
+Page 1 has the id `all-classes`. A part page has the id `part-<part id>`.
+The use layer of a page is the plain cell `<page id>~layer-use`, with the name `use lines`. Each use line has it as its parent.
+The id of each cell comes from the page id and the type ids or the edge key.
+
+## Checks
+
+`check.mjs` prints one line for each violation.
+
+| Check | Rule |
+|---|---|
+| (a) | The `source` and `target` of every edge are class or reference cells (rule 3). Each edge has one UML line kind in its style. |
+| (b) | No aggregation or composition joins two layers (rule 9). |
+| (c) | Page 1 shows every model type exactly once and in the band of its layer. It draws every model line, and no other line. |
+| (d) | Each part page is a subset of page 1: the same boxes, and only lines that page 1 draws. It shows every line between the types it shows. A reference box names the page that details it. |
+| (e) | Every operation shows parentheses, a type for each parameter and a return type. A constructor has no return type (rule 5). |
+| (f) | The legend of each page lists exactly the line kinds and box kinds of that page (rule 13). |
+| (g) | The XML parses. |
+| (h) | Every line has a fixed exit, a fixed entry and waypoints, with no diagonal segment. No segment enters a class box, a reference box or a type parameter box, except the two boxes that the line joins. |
+| (i) | A class or interface box with no operation says why. A planned box shows `members not designed yet`. A code box shows `«dataType»` or a stereotype of the `stereotypeFor` map of the config. Any other class or interface with no operation is a violation. Types, unions, enums and consts are exempt. |
+
+`fixtures/mini.model.json` is a small model with all four layers, two parts and every edge kind.
+`fixtures/broken.drawio` breaks rule 3, rule 9 and check (h) on purpose: `check.mjs` must fail on it.
+`fixtures/mini.expected.drawio` holds the bytes that `gen.mjs` writes for `fixtures/mini.model.json` with no layout file.
+
+```sh
+node check.mjs fixtures/broken.drawio fixtures/mini.model.json   # exit 1
+node gen.mjs fixtures/mini.model.json /tmp/mini.drawio
+node check.mjs /tmp/mini.drawio fixtures/mini.model.json         # exit 0
+```
+
+## Tests
+
+`node --test` in `tools/drawio-clases/` runs the tests of `test/`. They use Node built-ins only.
+The workflow `.github/workflows/drawio-clases.yml` runs them on each pull request and push that touches the tool.
+
+## Render
+
+`render.mjs` needs a local Chromium. It looks for `CHROME_BIN`, then for the Playwright browsers in `~/.cache/ms-playwright`, then for `chromium` or `google-chrome` on the `PATH`.
+It does not use draw.io. It places the boxes and the HTML labels at their geometry, as draw.io does.
+It draws each line through its fixed exit, its waypoints and its fixed entry, with its stroke width, and puts each label where draw.io puts it.
+A line without waypoints gets a simple elbow, so draw.io can route that line on another path.
+For each page it reports the labels larger than their box, the line labels on a box, the overlapping boxes and the lines that cross a box.
+`RENDER_SCALE` sets the PNG scale. The default keeps each side under 12000 pixels.
