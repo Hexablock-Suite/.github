@@ -827,7 +827,7 @@
       "from": "LoggingAspect",
       "to": "UseCase",
       "kind": "aggregation",
-      "label": "inner 1",
+      "label": "decorate 1",
       "pattern": "Decorator",
       "status": "code",
       "views": []

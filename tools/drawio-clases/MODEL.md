@@ -53,7 +53,7 @@ The generator prints it with its «Sprint N», or with «planned» when the view
 |---|---|
 | `from`, `to` | Type ids. `from` is the holder, the caller or the subtype. |
 | `kind` | `use`, `implements`, `extends`, `aggregation` or `composition`. |
-| `label` | Text next to the line. An attribute use carries its name and multiplicity (`games 1`, `history 0..1`, `cells *`). A `new` carries `«create»`. Any other use carries the operation that uses the type, for example `execute()`. A type argument of a heritage clause carries `«bind»`. `null` for `implements`, `extends`, and a use that comes only from a type alias. |
+| `label` | Text next to the line. An attribute use carries its name and multiplicity (`games 1`, `history 0..1`, `cells *`). A `new` carries `«create»`. Any other use carries the operation that uses the type, for example `execute()`. A type argument of a heritage clause carries `«bind»`. An `aggregation` with the pattern `Decorator` carries the role `decorate` and the multiplicity instead of the attribute name, for example `decorate 1`. The code gives that multiplicity for an edge with `status: code`, and the view gives it for a planned edge. `null` for `implements`, `extends`, and a use that comes only from a type alias. |
 | `pattern` | The GoF pattern that a diamond makes visible, for example `Strategy`. Required for `aggregation` and `composition`, else `null`. |
 | `status` | `code` when the code has the dependency at `head`. `planned` when only a view draws it. |
 | `views` | The view files that draw the edge. Empty for an edge that only the code has. |
@@ -103,6 +103,8 @@ Rules:
 
 1. Every `from` and `to` is the `id` of a type in the model.
 2. An `aggregation` or a `composition` joins two types of the same layer and names its `pattern` (rule 11 of `classes.md`, «How to read it»). Every other attribute is a `use`.
+   An attribute whose type is a type parameter with a constraint uses the constraint, for example `inner: TInner` with `TInner extends IScoringPolicy`.
+   An `aggregation` with the pattern `Decorator` carries the label `decorate` and its multiplicity. Every other diamond carries the attribute name and its multiplicity.
 3. The model has at most one edge for each pair of `from`, `to` and `kind`. A pair with `implements` or `extends` has no `use` edge too.
 4. Types sort by `layer` from 4 to 1, then `part`, `file` and `name`. Edges sort by `from`, `to` and `kind`.
 5. The model has no timestamp, so the same commits always give the same bytes.
