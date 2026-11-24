@@ -144,7 +144,7 @@
     // A folder frame and a zone frame also carry a far label, which lives in the label room `lb` of the frame.
     const zl = '<g class="zl" aria-hidden="true"><rect class="zl-p" rx="6"/><text class="zl-n"></text><text class="zl-c"></text></g>';
     P.frames.forEach((f, fi) => {
-      frames += '<rect class="L' + f.layer + ' ' + (f.kind === 'g' ? 'fr-g' : 'fr-v') + '" data-f="' + fi + '" x="' + f.x + '" y="' + f.y + '" width="' + f.w + '" height="' + f.h + '" rx="' + (f.kind === 'g' ? 8 : 6) + '"/>';
+      frames += '<rect class="L' + f.layer + ' ' + (f.kind === 'g' ? 'fr-g' : 'fr-v') + (f.zone ? ' fr-z' : '') + '" data-f="' + fi + '" x="' + f.x + '" y="' + f.y + '" width="' + f.w + '" height="' + f.h + '" rx="' + (f.kind === 'g' ? 8 : 6) + '"/>';
       const fs = f.kind === 'g' ? 10 : 9;
       const ttl = { kind: f.kind, x: f.x + 16, y: f.y + 14, fs, text: f.title, room: f.w - 28, cap: ((f.kind === 'g' ? 84 : 44) - 22) / fs };
       ttl.tw = ttl.text.length * fs * 0.68;
@@ -186,15 +186,6 @@
       const extra = (e.kind === 'implements' ? ' impl' : e.kind === 'composition' ? ' comp' : e.kind === 'aggregation' ? ' agg' : '') + (ln.zx ? ' zx' : '') + (ghost ? ' gh' : '');
       lines += '<g class="e ' + kk + extra + '" data-i="' + ln.i + '"><path class="ln" d="' + d + '"/><path class="hd" d="' + h.d + '"/></g>';
     }
-    // A summary line stands for the lines between two zones on the far map. Its badge gives their count.
-    let sums = '';
-    sumBadges = P.sums || [];
-    for (const sm of P.sums || []) {
-      const a = P.frames[sm.a], b = P.frames[sm.b];
-      const say = sm.n + (sm.n === 1 ? ' line' : ' lines') + ' between ' + zoneName(a.title) + ' and ' + zoneName(b.title);
-      sums += '<g class="sum L' + a.layer + '"><title>' + esc(say) + '</title><path class="ln" d="' + roundPath(sm.p, 14) + '"/>' +
-        '<g class="sc"><rect x="' + (-badgeW(sm.n) / 2).toFixed(1) + '" y="-9" width="' + badgeW(sm.n).toFixed(1) + '" height="18" rx="9"/><text y="4.2">' + sm.n + '</text></g></g>';
-    }
     // Boxes go in reading order, so Tab follows bands, then rows, then columns.
     const order = model.types.filter((t) => P.boxes[t.id]).sort((a, b) => {
       const ra = rectOf(a.id), rb = rectOf(b.id);
@@ -205,9 +196,6 @@
     $('#bands').innerHTML = bands;
     $('#frames').innerHTML = frames;
     $('#lines').innerHTML = lines;
-    $('#sums').innerHTML = sums;
-    sumEls = [...document.querySelectorAll('#sums .sc')];
-    lastBadgeK = -1;
     // The legend shows the ghost line only when the model has one.
     app.classList.toggle('has-ghosts', ghostCount > 0);
     $('#boxes').innerHTML = boxes;
@@ -293,35 +281,9 @@
     }
   }
 
-  // layoutBadges puts the count badge of each summary line on its route, at a constant size on screen.
-  // A badge tries the middle of its longest run first, then other points of its runs, longest run first.
-  // It takes the first point where it touches no box and no badge placed before it.
-  // When no point is free, it keeps the middle of its longest run.
-  const BADGE_TRIES = [0.5, 0.3, 0.7, 0.15, 0.85];
-  function layoutBadges() {
-    const sc = 'scale(' + (1 / k).toFixed(4) + ')';
-    const placed = [];
-    const boxes = Object.values(P.boxes);
-    const clear = (r) => !boxes.some((b) => r[0] < b[0] + b[2] && b[0] < r[2] && r[1] < b[1] + b[3] && b[1] < r[3]) &&
-      !placed.some((q) => r[0] < q[2] && q[0] < r[2] && r[1] < q[3] && q[1] < r[3]);
-    sumBadges.forEach((sm, i) => {
-      const hw = (badgeW(sm.n) / 2 + 3) / k, hh = 12 / k;
-      const runs = sm.p.slice(1).map((q, j) => [sm.p[j], q]).sort((a, b) => (Math.abs(b[1][0] - b[0][0]) + Math.abs(b[1][1] - b[0][1])) - (Math.abs(a[1][0] - a[0][0]) + Math.abs(a[1][1] - a[0][1])));
-      let at = sm.c;
-      search: for (const [a, b] of runs) for (const f of BADGE_TRIES) {
-        const c = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
-        if (clear([c[0] - hw, c[1] - hh, c[0] + hw, c[1] + hh])) { at = c; break search; }
-      }
-      placed.push([at[0] - hw, at[1] - hh, at[0] + hw, at[1] + hh]);
-      sumEls[i].setAttribute('transform', 'translate(' + at[0].toFixed(1) + ' ' + at[1].toFixed(1) + ') ' + sc);
-    });
-  }
-
   // ---------- view transform ----------
   let lastScale = -1, titleFrame = 0, lastBoost = '';
-  let sumEls = [], sumBadges = [], ghostCount = 0, lastBadgeK = -1;
-  // badgeW gives the width of the count badge of a summary line.
-  const badgeW = (n) => String(n).length * 7.4 + 14;
+  let ghostCount = 0;
   function apply() {
     vp.setAttribute('transform', 'translate(' + tx.toFixed(2) + ' ' + ty.toFixed(2) + ') scale(' + k.toFixed(5) + ')');
     const lod = k < LOD1 ? 'lod0' : k < LOD2 ? 'lod1' : 'lod2';
@@ -369,8 +331,6 @@
     titleFrame = 0;
     const far = k < LOD1;
     if (far && (lastTx !== tx || lastTy !== ty || Math.abs(lastScale - k) > 1e-4)) { lastTx = tx; lastTy = ty; layoutZones(); }
-    // The summary lines show at the far and middle levels. Their badges depend on the zoom only.
-    if (k < LOD2 && Math.abs(lastBadgeK - k) > 1e-4) { lastBadgeK = k; layoutBadges(); }
     if (Math.abs(lastScale - k) < 1e-4) return;
     lastScale = k;
     const target = { g: 11.5, v: 10.5 };
@@ -1017,7 +977,7 @@
     impl: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl s"><path class="dash" d="M1 7h19"/><path class="tri" d="M20 2.5 28.5 7 20 11.5Z"/></svg>',
     comp: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl s"><path d="M12 7h17"/><path class="dia" d="M1 7 6.5 3.5 12 7 6.5 10.5Z"/></svg>',
     agg: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl s"><path d="M12 7h17"/><path class="dia hol" d="M1 7 6.5 3.5 12 7 6.5 10.5Z"/></svg>',
-    sum: '<svg viewBox="0 0 30 14" aria-hidden="true" class="sw-sum L1"><path d="M1 7h28"/><rect x="9" y="2" width="12" height="10" rx="5"/></svg>',
+    view: '<svg viewBox="0 0 30 14" aria-hidden="true" class="L2"><rect class="sw-view" x="1" y="2" width="28" height="10" rx="2"/></svg>',
     attr: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl"><path d="M1 7h27M22 3l6 4-6 4"/></svg>',
     other: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl o"><path d="M1 11C9 2 19 2 28 6"/></svg>',
     box: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-box" x="1" y="2" width="28" height="10" rx="2"/></svg>',
@@ -1062,8 +1022,8 @@
     if (model.types.some((t) => t.abstract) || members.some((m) => m.abstract)) h += li(LG.abs, 'Abstract class or operation, in italics.');
     h += li(LG.zone, 'Folder. From far away, each class is a block. A click on the folder zooms to it.', 'sep');
     if (marks.length) h += li(LG.zone, 'The «planned» zone of a part. It holds the planned classes that have no file yet.');
-    if (['compact', 'full'].some((d) => (positions[d].sums || []).length)) {
-      h += li(LG.sum, 'A large folder shows each view as a zone. From far away, the lines between two zones are one line with their count. Zoom in to see each line.');
+    if (['compact', 'full'].some((d) => positions[d].frames.some((f) => f.zone))) {
+      h += li(LG.view, 'A large folder shows each view as a zone. From far away, a zone shows no line to another zone. Zoom in to see those lines.');
     }
     h += li(LG.ghost, 'Ghost line, at the middle zoom: a line between two zones or two folders. It takes full ink for a chosen, hovered or highlighted end.', 'lg-ghost');
     h += li(LG.sel, 'Chosen class.');

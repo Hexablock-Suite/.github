@@ -141,6 +141,10 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 /* A frame zooms in on click while no class is chosen. */
 #cv:not(.has-sel) .fr-g, #cv:not(.has-sel) .fr-v, .fold { cursor: zoom-in; }
 #cv.lod0 .fr-v { opacity: .45; }
+/* A zone of a large folder is a place on the map. Its frame is a plate with a solid border, so the reader sees where the zone ends.
+   A plain view frame stays a faint dashed hint. */
+.fr-z { fill: color-mix(in srgb, var(--surface) 38%, transparent); stroke: color-mix(in srgb, var(--la) 42%, transparent); stroke-dasharray: none; }
+#cv.lod0 .fr-z { opacity: 1; }
 .ttl text { font-family: var(--font-mono); font-weight: 600; }
 .ttl rect { fill: var(--lt); }
 .ttl-g text { fill: var(--la); font-size: 10px; letter-spacing: .08em; }
@@ -222,19 +226,8 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
    An aggregation has a hollow diamond at its holder. */
 .e.comp .hd { fill: var(--wire-s); }
 .e.agg .hd { fill: var(--surface); }
-/* Summary lines: on the far map, one line per pair of zones of a large folder, with the count of its lines.
-   They are not UML lines, so they take the accent of the layer and no arrowhead. */
-.sum .ln { fill: none; stroke: color-mix(in srgb, var(--la) 62%, transparent); stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
-.sum .sc rect { fill: var(--surface); stroke: color-mix(in srgb, var(--la) 55%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.sum .sc text { font: 600 11px var(--font-sans); fill: var(--la); text-anchor: middle; font-variant-numeric: tabular-nums; }
-#sums { transition: opacity .25s ease-out, visibility 0s; }
-#cv.lod2 #sums { opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s; }
-/* Middle: the summary lines stay, lighter, so the reader still sees how the zones connect. */
-#cv.lod1 #sums .ln { stroke-width: 1.6; opacity: .45; }
-#cv.lod1 #sums .sc { opacity: .8; }
-#cv.has-sel #sums, #cv.has-hl #sums { opacity: .08; }
 /* Far: only the structure lines stay, thin. Attribute lines come back at the middle level.
-   The lines between two zones give way to their summary line. They come back at the middle level.
+   The lines between two zones hide: the zone labels say what each zone holds. They come back at the middle level.
    A chosen class shows its lines at every level, and so does a pattern highlight. */
 #cv.lod0:not(.hl-e) .e.a:not(.on), #cv.lod0:not(.hl-e) .e.zx:not(.on), #cv.lod0.hl-e .e.a:not(.on):not(.lit), #cv.lod0.hl-e .e.zx:not(.on):not(.lit) {
   opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s; }
@@ -327,8 +320,7 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 .legend .gl.gh { stroke: var(--ghost); stroke-width: 1; }
 .legend .lg-ghost { display: none; }
 .has-ghosts[data-lod="lod1"] .legend .lg-ghost { display: flex; }
-.legend .sw-sum path { stroke: color-mix(in srgb, var(--la) 62%, transparent); stroke-width: 2.4; }
-.legend .sw-sum rect { fill: var(--surface); stroke: color-mix(in srgb, var(--la) 55%, transparent); }
+.legend .sw-view { fill: color-mix(in srgb, var(--surface) 38%, var(--lt)); stroke: color-mix(in srgb, var(--la) 42%, var(--lt)); }
 
 /* ---------- side panel and bottom sheet ---------- */
 #panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(400px, 42vw); background: var(--surface); border-left: 1px solid var(--rule);

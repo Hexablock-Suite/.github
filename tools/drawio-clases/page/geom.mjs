@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // geom.mjs checks the geometry of a positions file against its model.
-// It counts overlaps, crossings, parallel runs, label rooms over boxes or labels, and summary lines.
+// It counts overlaps, crossings, parallel runs, and label rooms over boxes or labels.
 // Usage: node geom.mjs <model.json> <positions.json>
 // It prints one line per density. The tests import checkGeometry.
 import { readFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ const hits = (a, b) => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] +
 
 // checkGeometry gives the counts of one density: boxes, lines, overlaps, crossings and more.
 // A segment crosses a box when it passes through its inside, shrunk by 1 unit.
-// The two boxes that a line joins do not count. A summary line joins two zones, so every box counts for it.
+// The two boxes that a line joins do not count.
 // A label room (`lb` of a frame) must not cover a box or another label room.
 // The page keeps each zone label inside its room at every zoom, so these counts hold for the labels too.
 export function checkGeometry(model, P) {
@@ -49,19 +49,6 @@ export function checkGeometry(model, P) {
       return inX && inY && (Math.abs(x - bx) < 0.6 || Math.abs(x - bx - bw) < 0.6 || Math.abs(y - by) < 0.6 || Math.abs(y - by - bh) < 0.6);
     };
     if (!onBorder(p[0], e.from) || !onBorder(p[p.length - 1], e.to)) badEnds++;
-  }
-  // Summary lines between two zones.
-  const sums = P.sums || [];
-  let sumCrossings = 0;
-  for (const [si, sm] of sums.entries()) {
-    for (let k = 0; k < sm.p.length - 1; k++) {
-      const [x1, y1] = sm.p[k], [x2, y2] = sm.p[k + 1];
-      const sx1 = Math.min(x1, x2), sx2 = Math.max(x1, x2), sy1 = Math.min(y1, y2), sy2 = Math.max(y1, y2);
-      for (const id of ids) {
-        const [bx, by, bw, bh] = P.boxes[id];
-        if (sx2 > bx + 1 && sx1 < bx + bw - 1 && sy2 > by + 1 && sy1 < by + bh - 1) { sumCrossings++; crossList.push('s' + si + '>' + id); }
-      }
-    }
   }
   // Label rooms against boxes and against each other.
   const rooms = P.frames.filter((f) => f.lb);
@@ -106,7 +93,7 @@ export function checkGeometry(model, P) {
     overlaps, overlapList, crossings: crosses, crossList, badEnds,
     sharedRuns: pairs.length, sharedSameTarget: sameTarget, closeParallel: nearPairs.size,
     length: Math.round(length), bends,
-    labels: rooms.length, labelBoxes, labelLabels, labelList, sums: sums.length, sumCrossings,
+    labels: rooms.length, labelBoxes, labelLabels, labelList,
   };
 }
 
@@ -127,7 +114,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       'bands', g.bands, 'lines', g.lines, 'overlaps', g.overlaps, 'crossings', g.crossings, 'badEnds', g.badEnds,
       'sharedRuns>40', g.sharedRuns, '(same target', g.sharedSameTarget + ', other', (g.sharedRuns - g.sharedSameTarget) + ')',
       'closeParallel>200', g.closeParallel, 'length', g.length, 'bends', g.bends,
-      'labels', g.labels, 'labelBoxes', g.labelBoxes, 'labelLabels', g.labelLabels, 'sums', g.sums, 'sumCrossings', g.sumCrossings);
+      'labels', g.labels, 'labelBoxes', g.labelBoxes, 'labelLabels', g.labelLabels);
     if (g.crossList.length) console.log('  crossings:', g.crossList.slice(0, 10).join(' '));
   }
 }
