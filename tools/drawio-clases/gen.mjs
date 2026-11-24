@@ -205,9 +205,8 @@ function stereotypeMarks(t) {
   const marks = [...(t.stereotypes ?? [])];
   const has = (s) => marks.includes(s);
   if (t.kind === 'interface' && !has('interface') && !has('port')) marks.push('interface');
-  if (t.kind === 'union' && !has('union')) marks.push('union');
+  // A union takes «enumeration» from the model (merge.mjs), as the page does. A type alias prints no kind word.
   if (t.kind === 'enum' && !has('enumeration')) marks.push('enumeration');
-  if (t.kind === 'type' && !has('type')) marks.push('type');
   if (t.status === 'planned' && !has('planned')) marks.push('planned');
   if (t.sprint && !has(t.sprint)) marks.push(t.sprint);
   return marks;

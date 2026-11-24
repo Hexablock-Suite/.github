@@ -200,3 +200,23 @@ test('previous behavior: an aggregation of another pattern and a composition kee
     { kind: 'aggregation', label: 'rules 1', pattern: 'Strategy', status: 'code' },
   ]);
 });
+
+const stereotypesOf = (model, id) => model.types.find((t) => t.id === id).stereotypes;
+
+test('S5c: a code interface with no operation keeps «interface» alone, with no «dataType»', () => {
+  const { model, notes } = merge(code([codeType('MoveRequest', 'interface')], []), [], config());
+  assert.deepEqual(stereotypesOf(model, 'MoveRequest'), ['interface']);
+  assert.deepEqual(notes.noOps, []);
+});
+
+test('S5c: a union of literals gets the stereotype «enumeration»', () => {
+  const union = { ...codeType('LevelProblem', 'union'), values: ["'too-many'", "'unknown'"] };
+  const { model } = merge(code([union], []), [], config());
+  assert.deepEqual(stereotypesOf(model, 'LevelProblem'), ['enumeration']);
+});
+
+test('previous behavior: a code class with no operation still gets «dataType»', () => {
+  const { model, notes } = merge(code([codeType('MoveDto')], []), [], config());
+  assert.deepEqual(stereotypesOf(model, 'MoveDto'), ['dataType']);
+  assert.deepEqual(notes.noOps.map(({ type, mark }) => [type.id, mark]), [['MoveDto', 'dataType']]);
+});

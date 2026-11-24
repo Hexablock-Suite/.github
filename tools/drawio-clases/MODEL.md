@@ -29,7 +29,7 @@ This file is the contract between those scripts. Change it before you change the
 | `abstract` | `true` for an abstract class. |
 | `status` | `code` when the type exists in `src/` at `head`. `planned` when only a view draws it. |
 | `sprint` | `"Sprint N"` when a view marks a planned type with that stereotype, else `null`. A type with `status: code` always has `null`. |
-| `stereotypes` | Stereotype names without guillemets, for example `["Strategy"]`, `["port"]`, `["aggregate root"]`. The generator adds `planned` for a planned type. |
+| `stereotypes` | Stereotype names without guillemets, for example `["Strategy"]`, `["port"]`, `["aggregate root"]`. `merge.mjs` adds `enumeration` to a `union`, `interface` to an interface with no other stereotype, and `dataType` (or the `stereotypeFor` name of the config) to a code class with no operation. An interface never gets `dataType`. The generator adds `planned` for a planned type. |
 | `layer` | Clean layer, `1` (entities) to `4` (frameworks and drivers). |
 | `part` | One part id of the top level. |
 | `file`, `line` | Repository-relative source path and line. `null` for a planned type. |

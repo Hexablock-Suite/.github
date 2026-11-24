@@ -493,11 +493,14 @@ function checkOps(cell, t, where, say, dataStereotypes) {
   const undesigned = lines.includes(UNDESIGNED);
   const ops = lines.filter((l) => l !== UNDESIGNED);
   // (i) A class or interface box with no operation says why (professor, 2026-11-02).
-  // A planned box shows «members not designed yet». A code box shows «dataType» or a stereotype of the config.
+  // A planned box shows «members not designed yet». A code class box shows «dataType» or a stereotype of the config.
+  // A code interface box shows «interface» (team decision, 2026-11-24).
   if (t.kind === 'class' || t.kind === 'interface') {
     const planned = cell.data.status === 'planned' && cell.styleMap.dashed === '1';
-    if (!ops.length && !planned && !marks.length) {
-      say('i', `${where} box "${t.id}" is a code ${t.kind} with no operation and no stereotype of ${dataStereotypes.map((m) => `«${m}»`).join(', ')}`);
+    const said = marks.length || (t.kind === 'interface' && head.includes('«interface»'));
+    if (!ops.length && !planned && !said) {
+      const want = [...dataStereotypes, ...(t.kind === 'interface' ? ['interface'] : [])];
+      say('i', `${where} box "${t.id}" is a code ${t.kind} with no operation and no stereotype of ${want.map((m) => `«${m}»`).join(', ')}`);
     } else if (!ops.length && planned && !undesigned) say('i', `${where} planned box "${t.id}" has no operation and does not say "${UNDESIGNED}"`);
   }
   if (marks.length && ops.length) say('i', `${where} box "${t.id}" shows «${marks[0]}» but also operations`);
