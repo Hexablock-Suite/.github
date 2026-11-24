@@ -304,6 +304,22 @@ python3 -m http.server 8000 --bind 127.0.0.1
 
 Then open `http://127.0.0.1:8000/`.
 
+### Published site
+
+The workflow `.github/workflows/class-diagram-site.yml` publishes the page to GitHub Pages at <https://hexablock-suite.github.io/.github/>.
+It clones `hexablock-api` and `hexablock-app` at their `main`, runs `merge.mjs` on each one, builds the page and deploys it.
+No product repository commits its model, so the site always shows the code of `main` at the time of the build.
+
+| Start | When |
+|---|---|
+| push | a push to `main` of this repository that touches the tool or the workflow |
+| schedule | every six hours |
+| «Run workflow» | by hand, in the Actions tab or with `gh workflow run class-diagram-site.yml` |
+
+A push to a product repository cannot start a workflow of this repository. After a product merge, the site is up to date at the next scheduled run, or at once with «Run workflow».
+A violation in a product model stops the build, and the site keeps its last good version.
+The Pages source of this repository must be «GitHub Actions» (Settings > Pages).
+
 ### Glyph table
 
 The width of a box depends on the width of the class name in IBM Plex Sans 600 at 12 px.
