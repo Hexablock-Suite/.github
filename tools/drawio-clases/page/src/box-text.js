@@ -15,6 +15,35 @@ function folderOf(t, partTitle) {
   return t.file ? t.file.replace(/^src\//, '').split('/').slice(0, -1).join('/') || '.' : 'planned · ' + (partTitle.get(t.part) || t.part);
 }
 
+// zoneName gives the short name of a folder zone: the path below the layer folder.
+// A view zone drops the word «view» of its frame title.
+function zoneName(title) {
+  if (title.startsWith('view ')) return title.slice(5);
+  return title.includes('/') ? title.split('/').slice(1).join('/') : title;
+}
+
+// relationText names one relation in the side panel.
+// A diamond names its kind first, so an aggregation never reads as a use.
+function relationText(e) {
+  if (e.kind === 'aggregation' || e.kind === 'composition') return e.kind + (e.label ? ' · ' + e.label : '');
+  return e.label || (e.kind === 'use' ? 'use' : e.kind);
+}
+
+// patternSets gives, for each pattern that the edges carry, its edge indexes and the ids of their ends.
+// The patterns come in name order.
+function patternSets(model) {
+  const sets = new Map();
+  model.edges.forEach((e, i) => {
+    if (!e.pattern) return;
+    if (!sets.has(e.pattern)) sets.set(e.pattern, { edges: [], ids: new Set() });
+    const s = sets.get(e.pattern);
+    s.edges.push(i);
+    s.ids.add(e.from);
+    s.ids.add(e.to);
+  });
+  return [...sets].sort((a, b) => a[0].localeCompare(b[0])).map(([name, s]) => ({ name, edges: s.edges, ids: [...s.ids].sort() }));
+}
+
 // stereotypesOf gives the stereotypes that the box prints, without guillemets.
 // It prints only what the model gives, plus «interface» for an interface.
 // «dataType» never stacks on «interface».

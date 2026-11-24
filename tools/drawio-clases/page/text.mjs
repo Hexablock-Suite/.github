@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 export const BOX_TEXT = readFileSync(new URL('src/box-text.js', import.meta.url), 'utf8');
 
 // boxText runs box-text.js in its own scope and gives its functions.
-export const boxText = new Function(BOX_TEXT + '\nreturn { BOX, isAttr, folderOf, stereotypesOf, stereoText, boxModel };')();
+export const boxText = new Function(BOX_TEXT + '\nreturn { BOX, isAttr, folderOf, zoneName, relationText, patternSets, stereotypesOf, stereoText, boxModel };')();
 
 const GLYPHS = JSON.parse(readFileSync(new URL('glyphs.json', import.meta.url), 'utf8'));
 

@@ -6,9 +6,13 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import { boxText, nameWidth } from './text.mjs';
 
-const { isAttr, folderOf, boxModel } = boxText;
+const { isAttr, folderOf, zoneName, boxModel } = boxText;
 
 const LARGE = 12;
+// A folder with this many types or more is zoned: each view frame is a zone, with wide corridors between the zones.
+// The two real models give the value. The App folder domain/engine holds 105 types.
+// The next largest folders hold 40 types (API adapters/http) and 34 types (App application), so they stay as they are.
+const ZONED = 48;
 const G = 12; // Grid step of the router. Parallel lines keep this distance.
 const ASPECT = 1.75; // Target width to height of the whole canvas.
 const PAD = {
@@ -16,12 +20,22 @@ const PAD = {
   group: { top: 84, side: 36, bottom: 36 },
   band: { top: 168, side: 56, bottom: 56 },
 };
-const GAP = { frame: 36, group: 72, band: 40 };
+const GAP = { frame: 36, zone: 144, group: 72, band: 40 };
+const M = 48; // Outer margin of the canvas.
+// The far label of a zone keeps a room at the top of its frame, so it covers no box.
+// REF is the part of the stage that the fit zoom fills in a window of 1440 by 900 pixels.
+// At that zoom, a label of one line (26 pixels high) shows at the scale LABEL.scale.
+const REF = { w: 1400, h: 800 };
+const LABEL = { h: 26, pad: 20, inset: 8, scale: 0.8 };
 // Frame names of the boxes that have no home view of their own.
 const NO_VIEW = 'in no view';
 const OTHER_VIEWS = 'other views';
 
 const snap = (v, s = 4) => Math.round(v / s) * s;
+// labelW gives the width of the label room that shows the name of a zone at the reference zoom.
+// The zone name is 600 15px IBM Plex Sans. The glyph table holds 12px widths, so the width scales by 15/12.
+const labelW = (name, kRef) => snap((nameWidth(name, false) * 15 / 12 + LABEL.pad) * LABEL.scale / kRef + 2 * LABEL.inset);
+const frameTitle = (v) => (v === NO_VIEW || v === OTHER_VIEWS ? v : 'view ' + v);
 
 // layoutModel gives the positions of one model: { layout, compact, full }.
 // It also gives the count of lines that found no route.
@@ -106,6 +120,40 @@ export async function layoutModel(model) {
     return { pos, w: snap(w + 2, 4), h: snap(h + 2, 4) };
   }
 
+  // shapeGroup packs the frames of one group and gives the group its size.
+  // strip is the height of the label room. kRef is the reference zoom that sets the width of a label room.
+  // A zoned group gives each zone frame a label room as well, and keeps a corridor of GAP.zone between its zones.
+  function shapeGroup(g, strip, kRef) {
+    g.top = Math.max(PAD.group.top, strip);
+    g.frames = [];
+    g.boxes = new Map();
+    if (g.items) {
+      const vTop = g.zoned ? Math.max(PAD.view.top, strip) : PAD.view.top;
+      const gap = g.zoned ? GAP.zone : GAP.frame;
+      const items = g.items.map((it) => {
+        const w = Math.max(it.c.w + 2 * PAD.view.side, g.zoned ? labelW(zoneName(frameTitle(it.v)), kRef) : 0);
+        return { it, w, h: it.c.h + vTop + PAD.view.bottom };
+      });
+      const area = items.reduce((s, it) => s + (it.w + gap) * (it.h + gap), 0);
+      const limit = Math.max(Math.max(...items.map((it) => it.w)), Math.sqrt(area * 2.4));
+      const pk = shelf(items, limit, gap, gap);
+      items.forEach(({ it, w, h }, i) => {
+        const [fx, fy] = pk.at[i];
+        // A frame that its label widens keeps its boxes in the middle.
+        const ox = snap((w - it.c.w) / 2);
+        g.frames.push({ title: frameTitle(it.v), x: fx, y: fy, w, h, top: vTop, zone: g.zoned, ids: it.ids });
+        for (const [id, [x, y]] of it.c.pos) g.boxes.set(id, [fx + ox + x, fy + vTop + y]);
+      });
+      g.cw = pk.w; g.ch = pk.h;
+    } else {
+      for (const [id, p] of g.c.pos) g.boxes.set(id, p);
+      g.cw = g.c.w; g.ch = g.c.h;
+    }
+    g.w = Math.max(g.cw + 2 * PAD.group.side, labelW(zoneName(g.title), kRef));
+    g.ox = snap((g.w - g.cw) / 2);
+    g.h = g.ch + g.top + PAD.group.bottom;
+  }
+
   async function compose(density) {
     const sizes = new Map();
     for (const t of model.types) {
@@ -114,6 +162,7 @@ export async function layoutModel(model) {
       tpWidth.set(t.id, m.tpW);
     }
     // 1. Groups: folder groups per layer, with view frames inside a large group.
+    // ELK places the boxes of each frame once. The packing below runs again when the label rooms change.
     const groups = [];
     for (const layer of [4, 3, 2, 1]) {
       const byFolder = new Map();
@@ -125,128 +174,154 @@ export async function layoutModel(model) {
       for (const g of [...byFolder.keys()].sort()) {
         const types = byFolder.get(g);
         const frames = types.length >= LARGE ? homeViews(types) : null;
-        const group = { layer, title: g, types, frames: [], boxes: new Map() };
+        const group = { layer, title: g, types, zoned: !!frames && types.length >= ZONED, items: null, c: null };
         if (frames) {
-          const items = [];
-          for (const [v, ts] of frames) {
-            const c = await placeBoxes(ts, sizes);
-            items.push({ v, c, w: c.w + 2 * PAD.view.side, h: c.h + PAD.view.top + PAD.view.bottom });
-          }
-          const area = items.reduce((s, it) => s + (it.w + GAP.frame) * (it.h + GAP.frame), 0);
-          const limit = Math.max(Math.max(...items.map((it) => it.w)), Math.sqrt(area * 2.4));
-          const pk = shelf(items, limit, GAP.frame, GAP.frame);
-          items.forEach((it, i) => {
-            const [fx, fy] = pk.at[i];
-            group.frames.push({ title: it.v === NO_VIEW || it.v === OTHER_VIEWS ? it.v : 'view ' + it.v, x: fx, y: fy, w: it.w, h: it.h });
-            for (const [id, [x, y]] of it.c.pos) group.boxes.set(id, [fx + PAD.view.side + x, fy + PAD.view.top + y]);
-          });
-          group.cw = pk.w; group.ch = pk.h;
-        } else {
-          const c = await placeBoxes(types, sizes);
-          for (const [id, p] of c.pos) group.boxes.set(id, p);
-          group.cw = c.w; group.ch = c.h;
-        }
-        group.w = group.cw + 2 * PAD.group.side;
-        group.h = group.ch + PAD.group.top + PAD.group.bottom;
+          group.items = [];
+          for (const [v, ts] of frames) group.items.push({ v, ids: ts.map((t) => t.id), c: await placeBoxes(ts, sizes) });
+        } else group.c = await placeBoxes(types, sizes);
         groups.push(group);
       }
     }
     const groupOf = new Map();
-    groups.forEach((g, gi) => { for (const id of g.boxes.keys()) groupOf.set(id, gi); });
+    groups.forEach((g, gi) => {
+      const ids = g.items ? g.items.flatMap((it) => it.ids) : [...g.c.pos.keys()];
+      for (const id of ids) groupOf.set(id, gi);
+    });
 
     // 2. Bands: pack the groups of each band into rows of one common width.
     // Each layer gets a band, layer 4 at the top.
     const layers = [4, 3, 2, 1];
     const bandsOf = (layer) => groups.filter((g) => g.layer === layer);
-    const order = new Map(layers.map((l) => [l, bandsOf(l)]));
-    const placeAll = (inner) => {
-      const out = { bands: [] };
-      let y = 0;
-      for (const layer of layers) {
-        const gs = order.get(layer);
-        const pk = shelf(gs, inner, GAP.group, GAP.group, true);
-        const h = pk.h + PAD.band.top + PAD.band.bottom;
-        gs.forEach((g, i) => { g.x = PAD.band.side + pk.at[i][0]; g.y = y + PAD.band.top + pk.at[i][1]; });
-        out.bands.push({ layer, x: 0, y, w: inner + 2 * PAD.band.side, h });
-        y += h + GAP.band;
-      }
-      out.w = inner + 2 * PAD.band.side;
-      out.h = y - GAP.band;
-      return out;
-    };
-    const minInner = Math.max(...groups.map((g) => g.w));
-    const sumW = Math.max(...layers.map((l) => bandsOf(l).reduce((s, g) => s + g.w + GAP.group, 0)));
-    const fitWidth = () => {
-      let best = null;
-      for (let inner = minInner; inner <= sumW + 1; inner += 48) {
-        const p = placeAll(inner);
-        const score = Math.abs(Math.log((p.w / p.h) / ASPECT));
-        if (!best || score < best.score - 1e-9) best = { inner, score };
-      }
-      return best.inner;
-    };
-    let inner = fitWidth();
-    const boxCenter = (id) => {
-      const g = groups[groupOf.get(id)];
-      const [x, y] = g.boxes.get(id);
-      const [w, h] = sizes.get(id);
-      return [g.x + PAD.group.side + x + w / 2, g.y + PAD.group.top + y + h / 2];
-    };
-    // Sweeps order the groups of a band by the mean x of the boxes they touch in other bands.
-    let placed = placeAll(inner);
-    for (let sweep = 0; sweep < 4; sweep++) {
-      for (const layer of sweep % 2 ? layers.slice().reverse() : layers) {
-        const gs = order.get(layer);
-        const bary = new Map();
-        // mate holds, for a group with no link to another band, the group of its band that it links to most.
-        const mate = new Map();
-        for (const g of gs) {
-          let sx = 0, n = 0;
-          const inBand = new Map();
-          for (const e of model.edges) {
-            const a = g.boxes.has(e.from), b = g.boxes.has(e.to);
-            if (a === b) continue;
-            const other = a ? e.to : e.from;
-            const og = groups[groupOf.get(other)];
-            const wgt = e.kind === 'use' && !isAttr(e) ? 0.3 : 1;
-            if (og.layer === layer) { inBand.set(og, (inBand.get(og) || 0) + wgt); continue; }
-            sx += boxCenter(other)[0] * wgt; n += wgt;
+    function packBands() {
+      const order = new Map(layers.map((l) => [l, bandsOf(l)]));
+      const placeAll = (inner) => {
+        const out = { bands: [] };
+        let y = 0;
+        for (const layer of layers) {
+          const gs = order.get(layer);
+          const pk = shelf(gs, inner, GAP.group, GAP.group, true);
+          const h = pk.h + PAD.band.top + PAD.band.bottom;
+          gs.forEach((g, i) => { g.x = PAD.band.side + pk.at[i][0]; g.y = y + PAD.band.top + pk.at[i][1]; });
+          out.bands.push({ layer, x: 0, y, w: inner + 2 * PAD.band.side, h });
+          y += h + GAP.band;
+        }
+        out.w = inner + 2 * PAD.band.side;
+        out.h = y - GAP.band;
+        return out;
+      };
+      const minInner = Math.max(...groups.map((g) => g.w));
+      const sumW = Math.max(...layers.map((l) => bandsOf(l).reduce((s, g) => s + g.w + GAP.group, 0)));
+      const fitWidth = () => {
+        let best = null;
+        for (let inner = minInner; inner <= sumW + 1; inner += 48) {
+          const p = placeAll(inner);
+          const score = Math.abs(Math.log((p.w / p.h) / ASPECT));
+          if (!best || score < best.score - 1e-9) best = { inner, score };
+        }
+        return best.inner;
+      };
+      let inner = fitWidth();
+      const boxCenter = (id) => {
+        const g = groups[groupOf.get(id)];
+        const [x, y] = g.boxes.get(id);
+        const [w, h] = sizes.get(id);
+        return [g.x + g.ox + x + w / 2, g.y + g.top + y + h / 2];
+      };
+      // Sweeps order the groups of a band by the mean x of the boxes they touch in other bands.
+      placeAll(inner);
+      for (let sweep = 0; sweep < 4; sweep++) {
+        for (const layer of sweep % 2 ? layers.slice().reverse() : layers) {
+          const gs = order.get(layer);
+          const bary = new Map();
+          // mate holds, for a group with no link to another band, the group of its band that it links to most.
+          const mate = new Map();
+          for (const g of gs) {
+            let sx = 0, n = 0;
+            const inBand = new Map();
+            for (const e of model.edges) {
+              const a = g.boxes.has(e.from), b = g.boxes.has(e.to);
+              if (a === b) continue;
+              const other = a ? e.to : e.from;
+              const og = groups[groupOf.get(other)];
+              const wgt = e.kind === 'use' && !isAttr(e) ? 0.3 : 1;
+              if (og.layer === layer) { inBand.set(og, (inBand.get(og) || 0) + wgt); continue; }
+              sx += boxCenter(other)[0] * wgt; n += wgt;
+            }
+            if (n) bary.set(g, sx / n);
+            else if (inBand.size) mate.set(g, [...inBand].sort((p, q) => q[1] - p[1])[0][0]);
+            else bary.set(g, g.x + g.w / 2);
           }
-          if (n) bary.set(g, sx / n);
-          else if (inBand.size) mate.set(g, [...inBand].sort((p, q) => q[1] - p[1])[0][0]);
-          else bary.set(g, g.x + g.w / 2);
+          // A group that only links inside its band sits right after the group it links to.
+          // This keeps a planned zone next to the folder of its kin.
+          const sorted = gs.filter((g) => bary.has(g)).sort((p, q) => bary.get(p) - bary.get(q));
+          for (const [g, m] of mate) {
+            const at = sorted.indexOf(m);
+            sorted.splice(at < 0 ? sorted.length : at + 1, 0, g);
+          }
+          order.set(layer, sorted);
+          placeAll(inner);
         }
-        // A group that only links inside its band sits right after the group it links to.
-        // This keeps a planned zone next to the folder of its kin.
-        const sorted = gs.filter((g) => bary.has(g)).sort((p, q) => bary.get(p) - bary.get(q));
-        for (const [g, m] of mate) {
-          const at = sorted.indexOf(m);
-          sorted.splice(at < 0 ? sorted.length : at + 1, 0, g);
-        }
-        order.set(layer, sorted);
-        placed = placeAll(inner);
       }
+      inner = fitWidth();
+      return placeAll(inner);
     }
-    inner = fitWidth();
-    placed = placeAll(inner);
+
+    // The label rooms depend on the fit zoom, and the fit zoom depends on the size of the canvas.
+    // Three passes bring the label rooms close to a fixed point. Each pass gives the same result for the same model.
+    let strip = 0, kRef = 1, placed = null;
+    for (let pass = 0; pass < 3; pass++) {
+      for (const g of groups) shapeGroup(g, strip, kRef);
+      placed = packBands();
+      kRef = Math.min(REF.w / (placed.w + 2 * M), REF.h / (placed.h + 2 * M));
+      strip = snap(LABEL.h * LABEL.scale / kRef + 2 * LABEL.inset);
+    }
 
     // 3. Absolute boxes and frames.
-    const M = 48; // Outer margin of the canvas.
+    // A folder frame and a zone frame carry their label room `lb`: [x, y, w, h] at the top of the frame.
     const boxes = {};
     const frames = [];
+    const room = (x, y, w, top) => [x + LABEL.inset, y + LABEL.inset, w - 2 * LABEL.inset, top - 2 * LABEL.inset];
     for (const g of groups) {
-      frames.push({ kind: 'g', layer: g.layer, title: g.title, x: M + g.x, y: M + g.y, w: g.w, h: g.h });
-      for (const f of g.frames) frames.push({ kind: 'v', layer: g.layer, title: f.title, x: M + g.x + PAD.group.side + f.x, y: M + g.y + PAD.group.top + f.y, w: f.w, h: f.h });
+      const gx = M + g.x, gy = M + g.y;
+      frames.push({ kind: 'g', layer: g.layer, title: g.title, x: gx, y: gy, w: g.w, h: g.h, lb: room(gx, gy, g.w, g.top) });
+      for (const f of g.frames) {
+        const x = gx + g.ox + f.x, y = gy + g.top + f.y;
+        const fr = { kind: 'v', layer: g.layer, title: f.title, x, y, w: f.w, h: f.h };
+        if (f.zone) Object.assign(fr, { zone: 1, ids: f.ids, lb: room(x, y, f.w, f.top) });
+        frames.push(fr);
+      }
       for (const [id, [x, y]] of g.boxes) {
         const [w, h] = sizes.get(id);
-        boxes[id] = [M + g.x + PAD.group.side + x, M + g.y + PAD.group.top + y, w, h];
+        boxes[id] = [gx + g.ox + x, gy + g.top + y, w, h];
       }
     }
     const bands = placed.bands.map((b) => ({ ...b, x: M + b.x, y: M + b.y }));
     const W = snap(placed.w + 2 * M, G), H = snap(placed.h + 2 * M, G);
     const groupFrames = frames.filter((f) => f.kind === 'g');
-    const { lines, failed } = route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, (id) => groupOf.get(id));
-    return { failed, layout: { w: W, h: H, bands, frames, boxes, lines } };
+
+    // 4. Zones: a routed line between two zones of one zoned folder is a zone line.
+    // Each pair of zones that zone lines join gets one summary line, with the count of its zone lines.
+    const zoneFrames = [];
+    const zoneOfBox = new Map();
+    frames.forEach((f, fi) => {
+      if (!f.zone) return;
+      for (const id of f.ids) zoneOfBox.set(id, zoneFrames.length);
+      zoneFrames.push({ fi, f });
+    });
+    const zoneLines = new Set();
+    const pairs = new Map();
+    for (const { e, i } of routedEdges) {
+      const za = zoneOfBox.get(e.from), zb = zoneOfBox.get(e.to);
+      if (za === undefined || zb === undefined || za === zb || groupOf.get(e.from) !== groupOf.get(e.to)) continue;
+      zoneLines.add(i);
+      const key = Math.min(za, zb) * 65536 + Math.max(za, zb);
+      pairs.set(key, (pairs.get(key) || 0) + 1);
+    }
+    const sumSpecs = [...pairs].sort((p, q) => p[0] - q[0]).map(([key, n]) => ({ a: Math.floor(key / 65536), b: key % 65536, n }));
+
+    const { lines, sums, failed } = route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, groupFrames, W, H, groupIdx: (id) => groupOf.get(id), zoneOfBox });
+    for (const l of lines) if (zoneLines.has(l.i)) l.zx = 1;
+    return { failed, layout: { w: W, h: H, bands, frames, boxes, lines, sums } };
   }
 
   const positions = { layout: 'elk-per-container + own packing + own grid router' };
@@ -292,7 +367,9 @@ function shelf(items, limit, gx, gy, justify = false) {
 // route draws every structure and attribute line on a grid of step G.
 // A grid point near a box is blocked, so no line crosses a box.
 // A step on a track that a line to another target already uses costs more, so lines keep apart.
-function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) {
+// A step inside a folder or a zone that the line does not join costs more, so lines take the corridors.
+// After the model lines, it draws one summary line for each pair of zones in sumSpecs, from frame border to frame border.
+function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, groupFrames, W, H, groupIdx, zoneOfBox }) {
   const NX = Math.floor(W / G) + 1, NY = Math.floor(H / G) + 1;
   const INF = 8; // A line keeps this distance from every box.
   const blocked = new Uint8Array(NX * NY);
@@ -306,42 +383,87 @@ function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) 
       }
     }
   }
-  // Each grid point knows its folder group, so a line pays to cross a group that is not its own.
+  // A summary line joins two zone frames. Its ends use the frame as a box, but the frame blocks no grid point.
+  const zoneId = (z) => '~z' + z;
+  const rects = { ...boxes };
+  zoneFrames.forEach(({ f }, z) => { rects[zoneId(z)] = [f.x, f.y, f.w, f.h]; });
+  const zoneIdx = (id) => (id.startsWith('~z') ? +id.slice(2) : zoneOfBox.has(id) ? zoneOfBox.get(id) : -1);
+  const groupOfEnd = (id) => (id.startsWith('~z') ? groupIdx(zoneFrames[+id.slice(2)].f.ids[0]) : groupIdx(id));
+  // Each grid point knows its folder group and its zone, so a line pays to cross a group or a zone that is not its own.
   // The group index of a frame follows the order of groupFrames, which is the order of groups.
-  const gridGroup = new Int16Array(NX * NY).fill(-1);
-  groupFrames.forEach((f, gi) => {
-    for (let iy = Math.ceil(f.y / G); iy * G <= f.y + f.h; iy++) for (let ix = Math.ceil(f.x / G); ix * G <= f.x + f.w; ix++) gridGroup[iy * NX + ix] = gi;
-  });
+  const mapFrames = (list) => {
+    const grid = new Int16Array(NX * NY).fill(-1);
+    list.forEach((f, gi) => {
+      for (let iy = Math.ceil(f.y / G); iy * G <= f.y + f.h; iy++) for (let ix = Math.ceil(f.x / G); ix * G <= f.x + f.w; ix++) grid[iy * NX + ix] = gi;
+    });
+    return grid;
+  };
+  const gridGroup = mapFrames(groupFrames);
+  const gridZone = mapFrames(zoneFrames.map(({ f }) => f));
   const hUse = new Int32Array(NX * NY).fill(-1); // Horizontal step from a point to its right neighbor.
   const vUse = new Int32Array(NX * NY).fill(-1); // Vertical step from a point to its lower neighbor.
   const hCount = new Uint8Array(NX * NY), vCount = new Uint8Array(NX * NY);
 
   // Ports: choose a side per line end, then spread the ends of one side along it.
-  const ends = new Map();
-  const lines = routedEdges.map(({ e, i }) => {
-    const a = boxes[e.from], b = boxes[e.to];
-    let sa, sb;
-    if (b[1] >= a[1] + a[3] + 2 * G) { sa = 'b'; sb = 't'; }
-    else if (a[1] >= b[1] + b[3] + 2 * G) { sa = 't'; sb = 'b'; }
-    else if (b[0] >= a[0] + a[2]) { sa = 'r'; sb = 'l'; }
-    else { sa = 'l'; sb = 'r'; }
-    return { e, i, ends: [{ id: e.from, side: sa, other: e.to, lineTo: e.to, kind: e.kind }, { id: e.to, side: sb, other: e.from, lineTo: e.to, kind: e.kind }] };
+  // sidesOf gives the exit side of a and the entry side of b.
+  const sidesOf = (a, b) => {
+    if (b[1] >= a[1] + a[3] + 2 * G) return ['b', 't'];
+    if (a[1] >= b[1] + b[3] + 2 * G) return ['t', 'b'];
+    if (b[0] >= a[0] + a[2]) return ['r', 'l'];
+    return ['l', 'r'];
+  };
+  const specs = [
+    ...routedEdges.map(({ e, i }) => ({ e, i, sum: null })),
+    ...sumSpecs.map((s) => ({ e: { from: zoneId(s.a), to: zoneId(s.b), kind: 'use', label: null }, i: -1, sum: s })),
+  ];
+  const lines = specs.map(({ e, i, sum }) => {
+    const [sa, sb] = sidesOf(rects[e.from], rects[e.to]);
+    return { e, i, sum, ends: [{ id: e.from, side: sa, other: e.to, lineTo: e.to, kind: e.kind }, { id: e.to, side: sb, other: e.from, lineTo: e.to, kind: e.kind }] };
   });
+  // The implements lines into one type enter it on one side, and so do its extends lines.
+  // So they meet in one port and share one trunk, as UML draws a shared target.
+  // The side is the one that most of these lines would take. A tie goes to the first side of «t», «b», «l», «r».
+  const trunks = new Map();
+  for (const l of lines) {
+    if (l.e.kind !== 'implements' && l.e.kind !== 'extends') continue;
+    const key = l.e.to + '|' + l.e.kind;
+    if (!trunks.has(key)) trunks.set(key, []);
+    trunks.get(key).push(l);
+  }
+  const OUT = { t: [0, -1], b: [0, 1], l: [-1, 0], r: [1, 0] };
+  for (const list of trunks.values()) {
+    if (list.length < 2) continue;
+    const votes = new Map();
+    for (const l of list) votes.set(l.ends[1].side, (votes.get(l.ends[1].side) || 0) + 1);
+    const side = ['t', 'b', 'l', 'r'].reduce((best, s) => ((votes.get(s) || 0) > (votes.get(best) || 0) ? s : best), 't');
+    const [x, y, w, h] = rects[list[0].e.to];
+    // The far end leaves its box on the side that faces the point just outside the shared port.
+    const mid = { t: [x + w / 2, y], b: [x + w / 2, y + h], l: [x, y + h / 2], r: [x + w, y + h / 2] }[side];
+    const near = [mid[0] + OUT[side][0] * 2 * G, mid[1] + OUT[side][1] * 2 * G];
+    for (const l of list) {
+      if (l.ends[1].side === side) continue;
+      const [ax, ay, aw, ah] = rects[l.e.from];
+      l.ends[1].side = side;
+      l.ends[0].side = near[1] >= ay + ah + G ? 'b' : near[1] <= ay - G ? 't' : near[0] >= ax + aw ? 'r' : 'l';
+    }
+  }
+  const ends = new Map();
   for (const l of lines) for (const en of l.ends) {
     const key = en.id + '|' + en.side;
     if (!ends.has(key)) ends.set(key, []);
     ends.get(key).push(en);
   }
-  const center = (id) => [boxes[id][0] + boxes[id][2] / 2, boxes[id][1] + boxes[id][3] / 2];
+  const center = (id) => [rects[id][0] + rects[id][2] / 2, rects[id][1] + rects[id][3] / 2];
   for (const [key, list] of ends) {
     const cut = key.lastIndexOf('|');
     const id = key.slice(0, cut), side = key.slice(cut + 1);
-    const [x, y, w, h] = boxes[id];
+    const [x, y, w, h] = rects[id];
     const horiz = side === 't' || side === 'b';
     // Ends that go to one other box share one port.
     // Structure lines of one kind into one target also share one port, so they meet in one trunk.
-    const incoming = list[0].id === list[0].lineTo;
-    const keyOf = (en) => (incoming && en.kind !== 'use' ? 'S:' + en.kind : en.other);
+    // A side can hold ends that leave the box and ends that enter it. The key looks at each end on its own.
+    const incoming = list.every((en) => en.id === en.lineTo);
+    const keyOf = (en) => (en.id === en.lineTo && en.kind !== 'use' ? 'S:' + en.kind : en.other);
     const groupsByKey = new Map();
     for (const en of list) {
       const k = keyOf(en);
@@ -375,7 +497,7 @@ function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) 
   }
   // portOf gives the point on the box side and the first free grid point outside it.
   const portOf = (en) => {
-    const [x, y, w, h] = boxes[en.id];
+    const [x, y, w, h] = rects[en.id];
     const s = en.slot * G;
     if (en.side === 't') return { p: [s, y], g: [en.slot, Math.floor((y - INF) / G)], dir: 3 };
     if (en.side === 'b') return { p: [s, y + h], g: [en.slot, Math.ceil((y + h + INF) / G)], dir: 2 };
@@ -386,8 +508,10 @@ function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) 
   const DX = [1, -1, 0, 0], DY = [0, 0, 1, -1];
   // NEAR is the cost of a step beside a line of another target, one grid step away.
   // It keeps a visible gap of two grid steps between parallel lines.
+  // With 40, a long run beside another line costs more than two bends, so the line moves one track away.
   // TRUNK is the cost factor of a step on the track of a structure line of the same kind and target.
-  const BEND = 40, OVERLAP = 140, CROSS = 14, FOREIGN = 24, NEAR = 16, TRUNK = 0.5;
+  // ZONE is the cost of a step inside a zone that the line does not join. It keeps the lines in the corridors.
+  const BEND = 40, OVERLAP = 140, CROSS = 14, FOREIGN = 24, NEAR = 40, TRUNK = 0.5, ZONE = 24;
   const S = NX * NY * 4;
   const gScore = new Float64Array(S), stamp = new Int32Array(S), parent = new Int32Array(S);
   let gen = 0;
@@ -415,7 +539,7 @@ function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) 
     return top;
   };
 
-  const tIndex = new Map(ids.map((id, k) => [id, k]));
+  const tIndex = new Map(Object.keys(rects).map((id, k) => [id, k]));
   // lineKey groups the lines that may share a track: one target and one kind.
   const kindCode = { use: 0, implements: 1, extends: 2, aggregation: 3, composition: 4 };
   const lineKey = (l) => tIndex.get(l.e.to) * 5 + kindCode[l.e.kind];
@@ -425,7 +549,8 @@ function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) 
     hn = 0;
     const tk = lineKey(l);
     const structure = l.e.kind !== 'use';
-    const gA = groupIdx(l.e.from), gB = groupIdx(l.e.to);
+    const gA = groupOfEnd(l.e.from), gB = groupOfEnd(l.e.to);
+    const zA = zoneIdx(l.e.from), zB = zoneIdx(l.e.to);
     const [sx, sy] = from.g, [ex, ey] = to.g;
     const needDir = to.dir ^ 1; // Arrive moving toward the box.
     const s0 = ((sy * NX + sx) << 2) | from.dir;
@@ -465,6 +590,8 @@ function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) 
       if (cross) cost += CROSS;
       const gg = gridGroup[nn];
       if (gg >= 0 && gg !== gA && gg !== gB) cost += FOREIGN;
+      const gz = gridZone[nn];
+      if (gz >= 0 && gz !== zA && gz !== zB) cost += ZONE;
       const t = (nn << 2) | dir, ng = gs + cost;
       if (stamp[t] !== gen || ng < gScore[t]) { stamp[t] = gen; gScore[t] = ng; parent[t] = s; push(t, ng + Math.abs(ex - nx) * G + Math.abs(ey - ny) * G); }
     }
@@ -493,23 +620,28 @@ function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) 
   };
 
   // Short lines go first, so they take the direct tracks.
+  // The summary lines come last, in one pass, so they never move a model line.
   for (const l of lines) { l.from = portOf(l.ends[0]); l.to = portOf(l.ends[1]); }
-  const order = lines.slice().sort((p, q) => (Math.abs(p.from.g[0] - p.to.g[0]) + Math.abs(p.from.g[1] - p.to.g[1])) - (Math.abs(q.from.g[0] - q.to.g[0]) + Math.abs(q.from.g[1] - q.to.g[1])));
+  const span = (l) => Math.abs(l.from.g[0] - l.to.g[0]) + Math.abs(l.from.g[1] - l.to.g[1]);
+  const order = lines.filter((l) => !l.sum).sort((p, q) => span(p) - span(q));
   let failed = 0;
-  for (let pass = 0; pass < 2; pass++) {
-    for (const l of order) {
+  const pass = (list, last) => {
+    for (const l of list) {
       const tk = lineKey(l);
       if (l.grid) mark(l.grid, tk, -1);
       const g = astar(l, l.from, l.to);
-      if (!g) { if (pass === 1) failed++; l.grid = null; continue; }
+      if (!g) { if (last && !l.sum) failed++; l.grid = null; continue; }
       l.grid = g;
       mark(g, tk, 1);
     }
-  }
+  };
+  pass(order, false);
+  pass(order, true);
+  pass(lines.filter((l) => l.sum), true);
   const r1 = (v) => Math.round(v * 2) / 2;
-  const out = lines.filter((l) => l.grid).map((l) => {
+  // pathOf drops the points in the middle of a straight run.
+  const pathOf = (l) => {
     const raw = [l.from.p, ...l.grid.map((p) => p.slice()), l.to.p];
-    // Drop the points in the middle of a straight run.
     const p = [];
     for (const q of raw) {
       const n = p.length;
@@ -517,7 +649,12 @@ function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) 
       if (n >= 2 && ((p[n - 2][0] === p[n - 1][0] && p[n - 1][0] === q[0]) || (p[n - 2][1] === p[n - 1][1] && p[n - 1][1] === q[1]))) p[n - 1] = q;
       else p.push(q);
     }
-    const res = { i: l.i, p: p.map((q) => [r1(q[0]), r1(q[1])]) };
+    return p;
+  };
+  const out = lines.filter((l) => l.grid && !l.sum).map((l) => {
+    const p = pathOf(l);
+    // k is the kind of the edge, so a reader of the positions file sees a diamond or a triangle without the model.
+    const res = { i: l.i, k: l.e.kind, p: p.map((q) => [r1(q[0]), r1(q[1])]) };
     if (l.e.label) {
       // The label sits beside the last run, near the arrowhead.
       const z = p[p.length - 1], y = p[p.length - 2];
@@ -526,5 +663,16 @@ function route(model, routedEdges, tpWidth, boxes, groupFrames, W, H, groupIdx) 
     }
     return res;
   }).sort((a, b) => a.i - b.i);
-  return { lines: out, failed };
+  // A summary line gives its two frames by their index in the frame list, its count and its route.
+  // c is the middle of its longest run, where the page puts the count.
+  const sums = lines.filter((l) => l.grid && l.sum).map((l) => {
+    const p = pathOf(l).map((q) => [r1(q[0]), r1(q[1])]);
+    let best = 0, c = p[0];
+    for (let k = 0; k < p.length - 1; k++) {
+      const len = Math.abs(p[k + 1][0] - p[k][0]) + Math.abs(p[k + 1][1] - p[k][1]);
+      if (len > best) { best = len; c = [(p[k][0] + p[k + 1][0]) / 2, (p[k][1] + p[k + 1][1]) / 2]; }
+    }
+    return { a: zoneFrames[l.sum.a].fi, b: zoneFrames[l.sum.b].fi, n: l.sum.n, p, c };
+  });
+  return { lines: out, sums, failed };
 }

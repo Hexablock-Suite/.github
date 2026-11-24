@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkGeometry, routedCount } from '../geom.mjs';
+import { boxText } from '../text.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MINI = path.join(DIR, '..', 'fixtures', 'mini.model.json');
@@ -36,6 +37,55 @@ function bigModel() {
   const edges = types.slice(1).map((t, i) => ({ from: t.id, to: types[i].id, kind: 'extends', label: null, pattern: null, status: 'code', views: [] }));
   return { repo: 'hexablock-big', head: '0000000', parts: [{ id: 'core', title: 'Core' }], types, edges };
 }
+
+// classType gives one code class of layer `layer` in the folder `folder`, drawn by the views `views`.
+const classType = (id, layer, folder, views) => ({
+  id, name: id, kind: 'class', abstract: false, status: 'code', sprint: null, stereotypes: [],
+  layer, part: 'core', file: `src/${folder}/${id.toLowerCase()}.ts`, line: 1, typeParams: [],
+  attrs: [], ops: [{ vis: '+', name: 'run', typeParams: [], params: [], ret: 'void', abstract: false, static: false }],
+  values: [], alias: null, views, requirement: null,
+});
+const edge = (from, to, kind, label = null) => ({ from, to, kind, label, pattern: null, status: 'code', views: [] });
+
+// ZONE_VIEWS are the three views of the zoned folder of zonedModel.
+const ZONE_VIEWS = ['zone-1-a', 'zone-2-b', 'zone-3-c'];
+
+// zonedModel is a model with one folder of 54 classes in three views of 18 classes.
+// Each view is a chain of extends. Three attribute uses join two views, and one other use joins two views too.
+function zonedModel() {
+  const types = [];
+  const edges = [];
+  ZONE_VIEWS.forEach((v, z) => {
+    for (let i = 0; i < 18; i++) {
+      types.push(classType(`Z${z}N${i}`, 1, 'domain/zoned', [v]));
+      if (i) edges.push(edge(`Z${z}N${i}`, `Z${z}N${i - 1}`, 'extends'));
+    }
+  });
+  edges.push(edge('Z0N3', 'Z1N3', 'use', 'next 1'), edge('Z0N5', 'Z1N5', 'use', 'peer 1'), edge('Z1N8', 'Z2N8', 'use', 'cells *'));
+  edges.push(edge('Z0N9', 'Z2N9', 'use', 'run()'));
+  edges.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+  return { repo: 'hexablock-zoned', head: '0000000', parts: [{ id: 'core', title: 'Core' }], types, edges };
+}
+
+// trunkModel has one interface with four implementers: two in the band above, and two in a folder beside it.
+// The folder beside it puts its implementers at the height of the interface, so they come in from the side.
+function trunkModel() {
+  const types = [
+    classType('Port', 2, 'application/ports', []),
+    classType('SideImpl', 2, 'application/side', []), classType('SideImpl2', 2, 'application/side', []),
+    classType('AdapterA', 3, 'adapters/a', []), classType('AdapterB', 3, 'adapters/b', []),
+  ];
+  types[0].kind = 'interface';
+  const edges = ['AdapterA', 'AdapterB', 'SideImpl', 'SideImpl2'].map((id) => edge(id, 'Port', 'implements'));
+  return { repo: 'hexablock-trunk', head: '0000000', parts: [{ id: 'core', title: 'Core' }], types, edges };
+}
+
+// gapOf gives the empty distance between two rectangles. It is negative when they overlap.
+const gapOf = (a, b) => Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w), b.y - (a.y + a.h), a.y - (b.y + b.h));
+
+// onBorder tells if a point lies on the border of a box.
+const onBorder = ([x, y], [bx, by, bw, bh]) => x >= bx - 0.6 && x <= bx + bw + 0.6 && y >= by - 0.6 && y <= by + bh + 0.6 &&
+  (Math.abs(x - bx) < 0.6 || Math.abs(x - bx - bw) < 0.6 || Math.abs(y - by) < 0.6 || Math.abs(y - by - bh) < 0.6);
 
 function writeJson(name, value) {
   const file = tmp(name);
@@ -161,5 +211,164 @@ test('S1: a wrong argument gives one error line, exit code 1 and no file', () =>
     assert.match(err[0], c.why);
     const out = c.args[c.args.indexOf('--out') + 1];
     if (c.args.includes('--out') && out) assert.equal(existsSync(out), false, out);
+  }
+});
+
+// fixtureSites builds the fixture models once for the checks of S2 and S5b.
+let fixtureCache = null;
+function fixtureSites() {
+  if (fixtureCache) return fixtureCache;
+  const files = { mini: MINI, 'hexablock-big': writeJson('big.model.json', bigModel()), 'hexablock-zoned': writeJson('zoned.model.json', zonedModel()), 'hexablock-trunk': writeJson('trunk.model.json', trunkModel()) };
+  const { out } = build(Object.values(files));
+  fixtureCache = Object.entries(files).map(([repo, file]) => ({ repo, model: readJson(file), pos: readJson(path.join(out, `${repo}.positions.json`)) }));
+  return fixtureCache;
+}
+
+test('S5b: on every fixture, no box overlaps a box and no line crosses a box that it does not join', () => {
+  for (const { repo, model, pos } of fixtureSites()) {
+    for (const density of ['compact', 'full']) {
+      const g = checkGeometry(model, pos[density]);
+      assert.equal(g.boxes, model.types.length, `${repo} ${density}`);
+      assert.equal(g.lines, routedCount(model), `${repo} ${density}`);
+      assert.equal(g.overlaps, 0, `${repo} ${density}: ${g.overlapList.join(' ')}`);
+      assert.equal(g.crossings, 0, `${repo} ${density}: ${g.crossList.join(' ')}`);
+      assert.equal(g.badEnds, 0, `${repo} ${density}`);
+    }
+  }
+});
+
+test('S2c, S5b: each folder frame and each zone frame reserves a label room that covers no box and no other label', () => {
+  for (const { repo, model, pos } of fixtureSites()) {
+    for (const density of ['compact', 'full']) {
+      const P = pos[density];
+      const framed = P.frames.filter((x) => x.kind === 'g' || x.zone);
+      assert.ok(framed.length > 0, `${repo} ${density}`);
+      for (const f of framed) {
+        assert.ok(Array.isArray(f.lb) && f.lb.length === 4, `${repo} ${density} ${f.title}: no label room`);
+        const [x, y, w, h] = f.lb;
+        // The room lies inside its frame and holds at least one line of text.
+        assert.ok(x >= f.x && y >= f.y && x + w <= f.x + f.w && y + h <= f.y + f.h && h >= 40, `${repo} ${density} ${f.title}: ${f.lb}`);
+      }
+      const g = checkGeometry(model, P);
+      assert.equal(g.labels, framed.length, `${repo} ${density}`);
+      assert.equal(g.labelBoxes, 0, `${repo} ${density}: ${g.labelList.join(' ')}`);
+      assert.equal(g.labelLabels, 0, `${repo} ${density}: ${g.labelList.join(' ')}`);
+    }
+  }
+});
+
+test('S5b: checkGeometry counts a label room over a box and over another label', () => {
+  const P = {
+    w: 400, h: 300, bands: [], lines: [],
+    boxes: { A: [100, 100, 80, 40], B: [300, 100, 80, 40] },
+    frames: [
+      { kind: 'g', title: 'a', x: 0, y: 0, w: 200, h: 200, lb: [90, 90, 40, 40] },
+      { kind: 'g', title: 'b', x: 0, y: 0, w: 200, h: 200, lb: [110, 80, 40, 30] },
+      { kind: 'g', title: 'c', x: 200, y: 0, w: 200, h: 200, lb: [200, 0, 60, 40] },
+    ],
+  };
+  const g = checkGeometry({ edges: [] }, P);
+  assert.equal(g.labels, 3);
+  assert.equal(g.labelBoxes, 2);
+  assert.equal(g.labelLabels, 1);
+});
+
+test('S2d, S5b: an aggregation edge reaches the positions with its kind, and its line starts on its from box', () => {
+  const [{ model, pos }] = fixtureSites();
+  const aggs = model.edges.map((e, i) => ({ e, i })).filter(({ e }) => e.kind === 'aggregation');
+  assert.equal(aggs.length, 2);
+  for (const density of ['compact', 'full']) {
+    const P = pos[density];
+    for (const ln of P.lines) assert.equal(ln.k, model.edges[ln.i].kind, `${density} line ${ln.i}`);
+    for (const { e, i } of aggs) {
+      const ln = P.lines.find((l) => l.i === i);
+      assert.ok(ln, `${density}: no line for ${e.from}>${e.to}`);
+      assert.equal(ln.k, 'aggregation');
+      // The hollow diamond sits at the from end, and the label sits near the other end.
+      assert.ok(onBorder(ln.p[0], P.boxes[e.from]), `${density} ${e.from}: ${ln.p[0]}`);
+      assert.ok(onBorder(ln.p[ln.p.length - 1], P.boxes[e.to]), `${density} ${e.to}`);
+      const end = ln.p[ln.p.length - 1];
+      assert.ok(Math.hypot(ln.lb[0] - end[0], ln.lb[1] - end[1]) < Math.hypot(ln.lb[0] - ln.p[0][0], ln.lb[1] - ln.p[0][1]), `${density}: label ${ln.lb}`);
+    }
+  }
+});
+
+test('S2d: the side panel names a diamond by its kind', () => {
+  const { relationText } = boxText;
+  assert.equal(relationText(edge('A', 'B', 'aggregation', 'decorate 1')), 'aggregation · decorate 1');
+  assert.equal(relationText(edge('A', 'B', 'composition', 'state 0..1')), 'composition · state 0..1');
+  assert.equal(relationText(edge('A', 'B', 'aggregation')), 'aggregation');
+  // The other kinds keep their text.
+  assert.equal(relationText(edge('A', 'B', 'use', 'run()')), 'run()');
+  assert.equal(relationText(edge('A', 'B', 'use')), 'use');
+  assert.equal(relationText(edge('A', 'B', 'implements')), 'implements');
+  assert.equal(relationText(edge('A', 'B', 'extends')), 'extends');
+});
+
+test('S5a: the highlight lists one set per pattern of the edges, with its edges and their two ends', () => {
+  const { patternSets } = boxText;
+  const model = readJson(MINI);
+  const sets = patternSets(model);
+  assert.deepEqual(sets.map((s) => s.name), ['Command', 'Decorator', 'State', 'Strategy']);
+  for (const s of sets) {
+    const edges = model.edges.map((e, i) => ({ e, i })).filter(({ e }) => e.pattern === s.name);
+    assert.deepEqual(s.edges, edges.map(({ i }) => i));
+    assert.deepEqual(s.ids, [...new Set(edges.flatMap(({ e }) => [e.from, e.to]))].sort());
+  }
+  assert.deepEqual(sets.find((s) => s.name === 'Decorator').ids, ['LoggingAspect', 'UseCase']);
+  // A model with no pattern gives no set.
+  assert.deepEqual(patternSets({ edges: [edge('A', 'B', 'use', 'x 1')] }), []);
+});
+
+test('S2a: a folder of 48 types or more draws each view as a zone, with corridors between the zones', () => {
+  const sites = fixtureSites();
+  const zoned = sites.find((s) => s.repo === 'hexablock-zoned');
+  for (const density of ['compact', 'full']) {
+    const P = zoned.pos[density];
+    const zones = P.frames.filter((f) => f.zone);
+    assert.deepEqual(zones.map((f) => f.title).sort(), ZONE_VIEWS.map((v) => 'view ' + v));
+    for (const f of zones) assert.deepEqual(f.ids.slice().sort(), zoned.model.types.filter((t) => t.views[0] === f.title.slice(5)).map((t) => t.id).sort());
+    for (let a = 0; a < zones.length; a++) for (let b = a + 1; b < zones.length; b++) {
+      assert.ok(gapOf(zones[a], zones[b]) >= 144, `${density}: ${zones[a].title} and ${zones[b].title} are ${gapOf(zones[a], zones[b])} apart`);
+    }
+  }
+  // The large folder of 14 types keeps its plain view frames.
+  const big = sites.find((s) => s.repo === 'hexablock-big');
+  assert.equal(big.pos.compact.frames.filter((f) => f.zone).length, 0);
+  assert.equal(big.pos.compact.frames.filter((f) => f.kind === 'v').length, 2);
+});
+
+test('S2a: the lines between two zones get one summary line with their count, for the far zoom level', () => {
+  const zoned = fixtureSites().find((s) => s.repo === 'hexablock-zoned');
+  const { model } = zoned;
+  for (const density of ['compact', 'full']) {
+    const P = zoned.pos[density];
+    const zoneOf = new Map();
+    P.frames.forEach((f, fi) => { if (f.zone) for (const id of f.ids) zoneOf.set(id, fi); });
+    // The three attribute uses cross zones. The extends chains stay inside their zone.
+    const cross = P.lines.filter((l) => zoneOf.get(model.edges[l.i].from) !== zoneOf.get(model.edges[l.i].to));
+    assert.deepEqual(cross.map((l) => model.edges[l.i].label).sort(), ['cells *', 'next 1', 'peer 1']);
+    for (const l of P.lines) assert.equal(!!l.zx, cross.includes(l), `${density} line ${l.i}`);
+    const title = (fi) => P.frames[fi].title;
+    const sums = P.sums.map((s) => [title(s.a), title(s.b), s.n].join(' ')).sort();
+    assert.deepEqual(sums, ['view zone-1-a view zone-2-b 2', 'view zone-2-b view zone-3-c 1']);
+    for (const s of P.sums) {
+      const a = P.frames[s.a], b = P.frames[s.b];
+      assert.ok(onBorder(s.p[0], [a.x, a.y, a.w, a.h]) && onBorder(s.p[s.p.length - 1], [b.x, b.y, b.w, b.h]), `${density}: ${s.p}`);
+      assert.equal(s.c.length, 2);
+    }
+    const g = checkGeometry(model, P);
+    assert.equal(g.sums, 2);
+    assert.equal(g.sumCrossings, 0, `${density}: ${g.crossList.join(' ')}`);
+  }
+});
+
+test('S2b: the implements lines into one interface end at one point, so they share one trunk', () => {
+  const trunk = fixtureSites().find((s) => s.repo === 'hexablock-trunk');
+  for (const density of ['compact', 'full']) {
+    const P = trunk.pos[density];
+    const ends = P.lines.filter((l) => trunk.model.edges[l.i].kind === 'implements').map((l) => l.p[l.p.length - 1].join(','));
+    assert.equal(ends.length, 4);
+    assert.deepEqual([...new Set(ends)], [ends[0]], `${density}: ${ends.join(' ')}`);
   }
 });
