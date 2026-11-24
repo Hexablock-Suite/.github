@@ -119,9 +119,6 @@
     return s + '</g>';
   }
 
-  // zoneName gives the short name of a folder zone: the path below the layer folder.
-  const zoneName = (title) => (title.includes('/') ? title.split('/').slice(1).join('/') : title);
-
   // zoneSummary names the two most frequent stereotypes of a zone.
   function zoneSummary(types) {
     const c = new Map();
@@ -144,6 +141,8 @@
       typesOf.get(key).push(t);
     }
     // A frame title hangs from the top of its frame. Its top padding limits how much it may grow.
+    // A folder frame and a zone frame also carry a far label, which lives in the label room `lb` of the frame.
+    const zl = '<g class="zl" aria-hidden="true"><rect class="zl-p" rx="6"/><text class="zl-n"></text><text class="zl-c"></text></g>';
     P.frames.forEach((f, fi) => {
       frames += '<rect class="L' + f.layer + ' ' + (f.kind === 'g' ? 'fr-g' : 'fr-v') + '" data-f="' + fi + '" x="' + f.x + '" y="' + f.y + '" width="' + f.w + '" height="' + f.h + '" rx="' + (f.kind === 'g' ? 8 : 6) + '"/>';
       const fs = f.kind === 'g' ? 10 : 9;
@@ -152,13 +151,14 @@
       titles.push(ttl);
       // A tinted plate behind the title keeps lines from striking through it.
       const plate = '<g class="ttl ttl-' + f.kind + '"' + (f.kind === 'v' ? ' aria-hidden="true"' : '') + '><rect x="-5" y="-3" width="' + (ttl.tw + 10).toFixed(1) + '" height="' + (fs + 6) + '" rx="2"/><text y="' + (fs * 0.78).toFixed(1) + '">' + esc(f.title) + '</text></g>';
-      if (f.kind === 'v') { tl += '<g class="L' + f.layer + '">' + plate + '</g>'; return; }
-      // A folder is one button: its title at reading zoom and its zone label far away.
-      const types = typesOf.get(f.layer + '|' + f.title) || [];
+      if (f.kind === 'v' && !f.zone) { tl += '<g class="L' + f.layer + '">' + plate + '</g>'; return; }
+      // A zone of a large folder shows its view name far away. A click on it zooms like a click on its frame.
+      const types = f.kind === 'v' ? f.ids.map((id) => byId.get(id)).filter(Boolean) : typesOf.get(f.layer + '|' + f.title) || [];
       const z = { f, fi, types, name: zoneName(f.title), n: types.length, summary: zoneSummary(types) };
       zones.push(z);
-      tl += '<g class="fold L' + f.layer + '" data-f="' + fi + '" tabindex="0" role="button" aria-label="' + esc(f.title + ', ' + typesText(z.n) + '. Zoom to the folder.') + '">' + plate +
-        '<g class="zl" aria-hidden="true"><rect class="zl-p" rx="6"/><text class="zl-n">' + esc(z.name) + '</text><text class="zl-c"></text></g></g>';
+      if (f.kind === 'v') { tl += '<g class="zone zv L' + f.layer + '" data-f="' + fi + '" aria-hidden="true">' + plate + zl + '</g>'; return; }
+      // A folder is one button: its title at reading zoom and its zone label far away.
+      tl += '<g class="fold L' + f.layer + '" data-f="' + fi + '" tabindex="0" role="button" aria-label="' + esc(f.title + ', ' + typesText(z.n) + '. Zoom to the folder.') + '">' + plate + zl + '</g>';
     });
     $('#tags').innerHTML = tags;
     bandTags = [...document.querySelectorAll('#tags .tag')].map((el, i) => ({ el, b: P.bands[i], h: el.offsetHeight, w: el.offsetWidth }));
@@ -178,8 +178,18 @@
       }
       // A dashed line starts its dashes at the target, so lines that share a trunk keep one dash rhythm.
       const d = e.kind === 'implements' ? roundPath(pts.slice().reverse()) : roundPath(pts);
-      const extra = e.kind === 'implements' ? ' impl' : e.kind === 'composition' ? ' comp' : e.kind === 'aggregation' ? ' agg' : '';
+      const extra = (e.kind === 'implements' ? ' impl' : e.kind === 'composition' ? ' comp' : e.kind === 'aggregation' ? ' agg' : '') + (ln.zx ? ' zx' : '');
       lines += '<g class="e ' + kk + extra + '" data-i="' + ln.i + '"><path class="ln" d="' + d + '"/><path class="hd" d="' + h.d + '"/></g>';
+    }
+    // A summary line stands for the lines between two zones on the far map. Its badge gives their count.
+    let sums = '';
+    sumBadges = [];
+    for (const sm of P.sums || []) {
+      const a = P.frames[sm.a], b = P.frames[sm.b];
+      const say = sm.n + (sm.n === 1 ? ' line' : ' lines') + ' between ' + zoneName(a.title) + ' and ' + zoneName(b.title);
+      sums += '<g class="sum L' + a.layer + '"><title>' + esc(say) + '</title><path class="ln" d="' + roundPath(sm.p, 14) + '"/>' +
+        '<g class="sc"><rect x="' + (-badgeW(sm.n) / 2).toFixed(1) + '" y="-9" width="' + badgeW(sm.n).toFixed(1) + '" height="18" rx="9"/><text y="4.2">' + sm.n + '</text></g></g>';
+      sumBadges.push(sm.c);
     }
     // Boxes go in reading order, so Tab follows bands, then rows, then columns.
     const order = model.types.filter((t) => P.boxes[t.id]).sort((a, b) => {
@@ -191,6 +201,8 @@
     $('#bands').innerHTML = bands;
     $('#frames').innerHTML = frames;
     $('#lines').innerHTML = lines;
+    $('#sums').innerHTML = sums;
+    sumEls = [...document.querySelectorAll('#sums .sc')];
     $('#boxes').innerHTML = boxes;
     $('#titles').innerHTML = tl;
     $('#others').innerHTML = '';
@@ -222,67 +234,66 @@
       z.shortW = textW(COUNT_FONT, z.short);
       z.longW = textW(COUNT_FONT, z.long);
       z.el.classList.toggle('dim', !!hl && lit === 0);
+      z.el.children[1].textContent = z.name;
       z.form = '';
     }
     lastScale = -1;
     if (!titleFrame) titleFrame = requestAnimationFrame(updateTitles);
   }
 
-  // layoutZones fits each zone label to its frame on screen and hides the labels that would collide.
-  // Each label keeps a constant size on screen, so it scales by 1/k.
-  // A label that is wider than its frame tries the space above the frame, then the middle, then below.
+  // layoutZones fits each zone label into the label room of its frame, at the far level.
+  // The layout reserves that room at the top of the frame, so a label never covers a box or another label.
+  // A label keeps a constant size on screen while the room holds it. It shrinks to fit the room, down to LABEL_MIN.
+  // It tries the forms in order: the long count on one line, on two lines, the short count, then the name only.
+  // A room too small for the name at LABEL_MIN hides the label.
+  // A band label can cover the left end of a room. Then the label moves right, past the band label, inside its room.
+  // LABEL_GOOD is a little below the scale that the layout reserves for the fit zoom (0.8), so the long form shows there.
+  const LABEL_GOOD = 0.75, LABEL_MIN = 0.6;
   function layoutZones() {
-    const placed = bandTags.filter((t) => !t.el.hidden && t.box).map((t) => t.box);
-    const sorted = zones.slice().sort((a, b) => b.n - a.n);
-    for (const z of sorted) {
-      const f = z.f, fw = f.w * k, fh = f.h * k;
-      // A label stays inside the band of its zone, so it never names the wrong layer.
-      const band = P.bands.find((b) => b.layer === f.layer);
-      const bx0 = band.x * k + tx + 2, bx1 = (band.x + band.w) * k + tx - 2, by0 = band.y * k + ty + 1, by1 = (band.y + band.h) * k + ty - 2;
-      const two = fh >= 46 && !!z.short;
-      const longFits = (two ? Math.max(z.nameW, z.longW) : z.nameW + 10 + z.longW) + 20 <= fw - 8;
-      const cnt = longFits ? z.long : z.short, cw = longFits ? z.longW : z.shortW;
-      const W = (two ? Math.max(z.nameW, cw) : z.nameW + (cnt ? 10 + cw : 0)) + 20, H = two ? 42 : 26;
-      const s = Math.max(0.88, Math.min(1, (fw - 8) / W));
-      const w2 = W * s / 2, hh = H * s;
-      const cx = Math.min(Math.max((f.x + f.w / 2) * k + tx, bx0 + w2), bx1 - w2);
-      const middle = Math.max(f.y * k + ty + 4, (f.y + f.h / 2) * k + ty - hh / 2);
-      const above = f.y * k + ty - hh - 1, below = (f.y + f.h) * k + ty + 3;
-      const tops = W * s <= fw - 4 ? [middle, above, below] : [above, middle, below];
-      // The label may also sit beside its frame, to the left or to the right.
-      const xs = [cx, f.x * k + tx - 4 - w2, (f.x + f.w) * k + tx + 4 + w2];
-      const tries = tops.map((top) => [xs[0], top]).concat(xs.slice(1).map((x) => [x, middle]));
-      let box = null;
-      for (const [x, top] of tries) {
-        const b = [x - w2, top, x + w2, top + hh];
-        if (b[0] < bx0 || b[2] > bx1 || b[1] < by0 || b[3] > by1) continue;
-        if (!placed.some((p) => b[0] < p[2] + 6 && p[0] < b[2] + 6 && b[1] < p[3] + 4 && p[1] < b[3] + 4)) { box = b; break; }
-      }
-      z.el.classList.toggle('off', !box);
-      if (!box) continue;
-      const top = box[1], bcx = (box[0] + box[2]) / 2;
-      placed.push(box);
-      const form = (two ? '2' : '1') + cnt;
-      if (form !== z.form) {
-        z.form = form;
+    const tags = bandTags.filter((t) => !t.el.hidden && t.box).map((t) => t.box);
+    for (const z of zones) {
+      const [lx, ly, lw, lh] = z.f.lb;
+      const top = ly * k + ty, rh = lh * k, right = (lx + lw) * k + tx;
+      // The label starts at the left end of its room, or just past a band label that overlaps the room.
+      let x0 = lx * k + tx;
+      for (const p of tags) if (p[1] < top + rh + 4 && top < p[3] + 4 && p[0] < right && x0 < p[2] + 4) x0 = Math.max(x0, p[2] + 8);
+      const rw = right - x0;
+      const one = (cnt, cw) => ({ two: false, cnt, cw, W: z.nameW + (cnt ? 10 + cw : 0) + 20, H: 26 });
+      const two = (cnt, cw) => ({ two: true, cnt, cw, W: Math.max(z.nameW, cw) + 20, H: 42 });
+      const forms = [one(z.long, z.longW), two(z.long, z.longW), one(z.short, z.shortW), two(z.short, z.shortW), one('', 0)].filter((f) => f.cnt || !f.two);
+      const fit = (f) => Math.min(1, rw / f.W, rh / f.H);
+      let form = rw > 0 ? forms.find((f) => fit(f) >= LABEL_GOOD) : null;
+      if (!form && rw > 0 && fit(forms[forms.length - 1]) >= LABEL_MIN) form = forms[forms.length - 1];
+      z.el.classList.toggle('off', !form);
+      if (!form) continue;
+      const s = fit(form);
+      const y0 = top + (rh - form.H * s) / 2;
+      const key = (form.two ? '2' : '1') + form.cnt;
+      if (key !== z.form) {
+        z.form = key;
         const [p, n, c] = z.el.children;
-        p.setAttribute('x', -W / 2); p.setAttribute('y', 0); p.setAttribute('width', W); p.setAttribute('height', H);
-        if (two) {
-          n.setAttribute('x', -z.nameW / 2); n.setAttribute('y', 20);
-          c.setAttribute('x', -cw / 2); c.setAttribute('y', 34);
+        p.setAttribute('x', 0); p.setAttribute('y', 0); p.setAttribute('width', form.W); p.setAttribute('height', form.H);
+        if (form.two) {
+          n.setAttribute('x', (form.W - z.nameW) / 2); n.setAttribute('y', 20);
+          c.setAttribute('x', (form.W - form.cw) / 2); c.setAttribute('y', 34);
         } else {
-          n.setAttribute('x', -W / 2 + 10); n.setAttribute('y', 18);
-          c.setAttribute('x', -W / 2 + 20 + z.nameW); c.setAttribute('y', 17.5);
+          n.setAttribute('x', 10); n.setAttribute('y', 18);
+          c.setAttribute('x', 20 + z.nameW); c.setAttribute('y', 17.5);
         }
-        c.textContent = cnt;
+        c.textContent = form.cnt;
       }
-      const ux = (bcx - tx) / k, uy = (top - ty) / k;
-      z.el.setAttribute('transform', 'translate(' + ux.toFixed(1) + ' ' + uy.toFixed(1) + ') scale(' + (s / k).toFixed(4) + ')');
+      z.el.setAttribute('transform', 'translate(' + ((x0 - tx) / k).toFixed(1) + ' ' + ((y0 - ty) / k).toFixed(1) + ') scale(' + (s / k).toFixed(4) + ')');
     }
+    // The count badges of the summary lines keep a constant size on screen.
+    const sc = 'scale(' + (1 / k).toFixed(4) + ')';
+    sumEls.forEach((el, i) => el.setAttribute('transform', 'translate(' + sumBadges[i][0] + ' ' + sumBadges[i][1] + ') ' + sc));
   }
 
   // ---------- view transform ----------
   let lastScale = -1, titleFrame = 0, lastBoost = '';
+  let sumEls = [], sumBadges = [];
+  // badgeW gives the width of the count badge of a summary line.
+  const badgeW = (n) => String(n).length * 7.4 + 14;
   function apply() {
     vp.setAttribute('transform', 'translate(' + tx.toFixed(2) + ' ' + ty.toFixed(2) + ') scale(' + k.toFixed(5) + ')');
     const lod = k < LOD1 ? 'lod0' : k < LOD2 ? 'lod1' : 'lod2';
@@ -591,12 +602,13 @@
   // ---------- panel ----------
   const glyph = (e) => {
     const kk = edgeKind(e);
-    if (isWhole(e)) return '<svg class="gl s" viewBox="0 0 26 10" aria-hidden="true"><path d="M10 5h15"/><path class="dia" d="M1 5 5.5 2 10 5 5.5 8Z"/></svg>';
+    if (isWhole(e)) return '<svg class="gl s" viewBox="0 0 26 10" aria-hidden="true"><path d="M10 5h15"/><path class="dia' + (e.kind === 'aggregation' ? ' hol' : '') + '" d="M1 5 5.5 2 10 5 5.5 8Z"/></svg>';
     if (kk === 's') return '<svg class="gl s" viewBox="0 0 26 10" aria-hidden="true"><path' + (e.kind === 'implements' ? ' class="dash"' : '') + ' d="M1 5h16"/><path class="tri" d="M17 1.5 24.5 5 17 8.5Z"/></svg>';
     if (kk === 'a') return '<svg class="gl" viewBox="0 0 26 10" aria-hidden="true"><path d="M1 5h23M19 1.5 24 5l-5 3.5"/></svg>';
     return '<svg class="gl o" viewBox="0 0 26 10" aria-hidden="true"><path d="M1 8C8 1 16 1 24 5"/></svg>';
   };
-  const relText = (e) => e.label || (e.kind === 'implements' ? 'implements' : e.kind === 'extends' ? 'extends' : e.kind === 'composition' ? 'composition' : 'use');
+  // relationText comes from box-text.js. It names a diamond by its kind.
+  const relText = relationText;
   const rank = { s: 0, a: 1, o: 2 };
 
   function relList(list) {
@@ -657,7 +669,8 @@
   $('#p-close').addEventListener('click', () => { const id = sel; clearChoice(); if (id && boxEl.get(id)) boxEl.get(id).focus({ preventScroll: true }); });
 
   // ---------- highlight ----------
-  // A set is a key: «st:» a stereotype, «v:» a view, «l:» a layer.
+  // A set is a key: «st:» a stereotype, «v:» a view, «l:» a layer, «p:» a pattern.
+  // A pattern set lights the edges of that pattern and their two ends, not every edge between lit boxes.
   const NONE = 'no stereotype';
   function setOptions() {
     const st = new Map(), vw = new Map(), ly = new Map();
@@ -672,11 +685,13 @@
       st: byCount(st).map(([s, n]) => ({ key: 'st:' + s, label: s === NONE ? NONE : '«' + s + '»', n })),
       v: [...vw].sort((a, b) => a[0].localeCompare(b[0])).map(([v, n]) => ({ key: 'v:' + v, label: v, n })),
       l: [4, 3, 2, 1].map((l) => ({ key: 'l:' + l, label: 'Layer ' + l + ' · ' + LAYER[l], n: ly.get(l) || 0 })),
+      p: patternSets(model).map((x) => ({ key: 'p:' + x.name, label: x.name, n: x.ids.length, ids: x.ids, edges: x.edges })),
     };
   }
   function idsFor(key) {
     const [kind, ...rest] = key.split(':');
     const val = rest.join(':');
+    if (kind === 'p') return new Set(options.p.find((o) => o.key === key).ids);
     return new Set(model.types.filter((t) => {
       if (kind === 'st') { const s = stereotypesOf(t); return val === NONE ? !s.length : s.includes(val); }
       if (kind === 'v') return t.views.includes(val);
@@ -690,21 +705,25 @@
   // applyHighlight marks the lit boxes and the lines between two lit boxes.
   function applyHighlight() {
     cv.classList.toggle('has-hl', !!hl);
+    cv.classList.toggle('hl-e', !!hl && !!hl.edges);
     for (const [id, g] of boxEl) g.classList.toggle('lit', !!hl && hl.ids.has(id));
-    for (const [i, g] of lineEl) { const e = model.edges[i]; g.classList.toggle('lit', !!hl && hl.ids.has(e.from) && hl.ids.has(e.to)); }
+    for (const [i, g] of lineEl) {
+      const e = model.edges[i];
+      g.classList.toggle('lit', !!hl && (hl.edges ? hl.edges.has(i) : hl.ids.has(e.from) && hl.ids.has(e.to)));
+    }
     if (zones.length && zones[0].el) fillZones();
     $('#hl-chip').hidden = !hl;
     $('#hl-badge').hidden = !hl;
     if (hl) {
       $('#hl-what').textContent = hl.label;
-      $('#hl-n').textContent = hl.ids.size + ' of ' + model.types.length + ' types';
+      $('#hl-n').textContent = hl.ids.size + ' of ' + model.types.length + ' types' + (hl.edges ? ' · ' + hl.edges.size + (hl.edges.size === 1 ? ' line' : ' lines') : '');
       $('#hl-badge').textContent = hl.ids.size;
     }
   }
   function setHighlight(key) {
     if (!key || (hl && hl.key === key)) { clearHighlight(); return; }
-    const opt = [...options.st, ...options.v, ...options.l].find((o) => o.key === key);
-    hl = { key, label: opt.label, ids: idsFor(key) };
+    const opt = [...options.st, ...options.v, ...options.l, ...options.p].find((o) => o.key === key);
+    hl = { key, label: opt.label, ids: idsFor(key), edges: opt.edges ? new Set(opt.edges) : null };
     applyHighlight();
     drawOptions();
     if (!sel) showSet(hl.ids);
@@ -733,11 +752,13 @@
     drawOptions();
     $('#status').textContent = 'Highlight cleared.';
   }
-  document.querySelectorAll('.hl-tabs button').forEach((b) => b.addEventListener('click', () => {
-    tab = b.dataset.tab;
-    document.querySelectorAll('.hl-tabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+  // showTab selects one tab of the highlight menu.
+  function showTab(name) {
+    tab = name;
+    document.querySelectorAll('.hl-tabs button').forEach((x) => x.setAttribute('aria-selected', String(x.dataset.tab === name)));
     drawOptions();
-  }));
+  }
+  document.querySelectorAll('.hl-tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
   $('#hl-opts').addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-hl]');
     if (!b) return;
@@ -767,7 +788,7 @@
       if (first) first.focus();
     });
   }
-  document.addEventListener('pointerdown', (ev) => { if (!ev.target.closest('.menu-w')) closeMenus(); });
+  document.addEventListener('pointerdown', (ev) => { if (!closest(ev.target, '.menu-w')) closeMenus(); });
 
   // ---------- pointer: pan, pinch, click, hover ----------
   const pts = new Map();
@@ -864,15 +885,17 @@
   }
 
   // ---------- keyboard ----------
+  // closest finds the nearest ancestor that matches. A target with no closest(), such as the document, gives null.
+  const closest = (t, sel) => (t && typeof t.closest === 'function' ? t.closest(sel) : null);
   cv.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
-    const g = ev.target.closest && ev.target.closest('.box');
-    const fold = ev.target.closest && ev.target.closest('.fold');
+    const g = closest(ev.target, '.box');
+    const fold = closest(ev.target, '.fold');
     if (g) { ev.preventDefault(); choose(g.dataset.id); }
     else if (fold) { ev.preventDefault(); zoomToFrame(+fold.dataset.f); }
   });
   cv.addEventListener('focusin', (ev) => {
-    const g = ev.target.closest && ev.target.closest('.box');
+    const g = closest(ev.target, '.box');
     if (g) ensureVisible(g.dataset.id);
   });
   document.addEventListener('keydown', (ev) => {
@@ -883,7 +906,7 @@
       clearHighlight();
       return;
     }
-    if (ev.target.closest('input, textarea')) return;
+    if (closest(ev.target, 'input, textarea')) return;
     const v = view();
     if (ev.key === '+' || ev.key === '=') zoomAt(v.w / 2, v.h / 2, 1.25);
     else if (ev.key === '-') zoomAt(v.w / 2, v.h / 2, 0.8);
@@ -961,6 +984,8 @@
     ext: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl s"><path d="M1 7h19"/><path class="tri" d="M20 2.5 28.5 7 20 11.5Z"/></svg>',
     impl: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl s"><path class="dash" d="M1 7h19"/><path class="tri" d="M20 2.5 28.5 7 20 11.5Z"/></svg>',
     comp: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl s"><path d="M12 7h17"/><path class="dia" d="M1 7 6.5 3.5 12 7 6.5 10.5Z"/></svg>',
+    agg: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl s"><path d="M12 7h17"/><path class="dia hol" d="M1 7 6.5 3.5 12 7 6.5 10.5Z"/></svg>',
+    sum: '<svg viewBox="0 0 30 14" aria-hidden="true" class="sw-sum L1"><path d="M1 7h28"/><rect x="9" y="2" width="12" height="10" rx="5"/></svg>',
     attr: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl"><path d="M1 7h27M22 3l6 4-6 4"/></svg>',
     other: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl o"><path d="M1 11C9 2 19 2 28 6"/></svg>',
     box: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-box" x="1" y="2" width="28" height="10" rx="2"/></svg>',
@@ -987,6 +1012,10 @@
     let h = '';
     if (kinds.has('extends')) h += li(LG.ext, 'Extends. Thick solid line, hollow triangle.');
     if (kinds.has('implements')) h += li(LG.impl, 'Implements. Dashed line, hollow triangle. The lines to one interface join in one trunk.');
+    if (kinds.has('aggregation')) {
+      const deco = model.edges.some((e) => e.kind === 'aggregation' && e.pattern === 'Decorator');
+      h += li(LG.agg, 'Aggregation. Hollow diamond at the holder. The label near the other end gives the role and the multiplicity.' + (deco ? ' A decorator reads decorate 1.' : ''));
+    }
     if (kinds.has('composition')) h += li(LG.comp, 'Composition. Filled diamond at the root of the aggregate. The label gives the role and the multiplicity.');
     if (model.edges.some(isAttr)) h += li(LG.attr, 'Use by an attribute. The label gives the role and the multiplicity.');
     if (model.edges.some((e) => edgeKind(e) === 'o')) {
@@ -1000,6 +1029,9 @@
     if (model.types.some((t) => t.abstract) || members.some((m) => m.abstract)) h += li(LG.abs, 'Abstract class or operation, in italics.');
     h += li(LG.zone, 'Folder. From far away, each class is a block. A click on the folder zooms to it.', 'sep');
     if (marks.length) h += li(LG.zone, 'The «planned» zone of a part. It holds the planned classes that have no file yet.');
+    if (['compact', 'full'].some((d) => (positions[d].sums || []).length)) {
+      h += li(LG.sum, 'A large folder shows each view as a zone. From far away, the lines between two zones are one line with their count. Zoom in to see each line.');
+    }
     h += li(LG.sel, 'Chosen class.');
     h += li(LG.dpt, 'Dependent tab. This class depends on the chosen class.');
     h += li(LG.dep, 'Dependency tab. The chosen class depends on this class.');
@@ -1088,7 +1120,9 @@
     $('#meta').textContent = m.repo + ' · ' + m.head + ' · ' + m.types.length + ' types · ' + m.edges.length + ' relations';
     if ($('#loading')) $('#loading').remove();
     options = setOptions();
-    drawOptions();
+    // The pattern tab shows only when the edges of the model carry a pattern.
+    $('#hl-tab-p').hidden = !options.p.length;
+    showTab(tab === 'p' && !options.p.length ? 'st' : tab);
     buildLegend();
     render();
     fit(false);

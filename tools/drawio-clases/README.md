@@ -237,12 +237,30 @@ The page is a clickable class diagram for the browser. It shows one repository a
 It reads only the model of `MODEL.md`, the model that `gen.mjs` draws. It never reads source code, so it never contradicts `classes.drawio`.
 It has the four layer bands with layer 4 at the top, the folder frames, the view frames inside a large folder, the planned zones, two box densities and three zoom levels.
 A click on a class chooses it: its lines and its neighbors stay, each neighbor gets a `dependent` or `dependency` tab, and a side panel lists its members, its views and its relations.
-The search finds a class by name or stereotype, the highlight menu lights a stereotype, a view or a layer, and a link such as `#app-GameEngine` opens one class.
+The panel names a diamond by its kind and its label, for example `aggregation · decorate 1`.
+The search finds a class by name or stereotype, the highlight menu lights a stereotype, a view, a layer or a pattern, and a link such as `#app-GameEngine` opens one class.
+The pattern tab shows only when the edges of the model carry a `pattern`. A pattern lights its edges and the two ends of each edge.
+An `aggregation` draws a hollow diamond at its `from` type, and a `composition` a filled one. The label sits near the other end.
+The legend lists a line kind only when the loaded model has an edge of that kind.
 Each class with a file links to its line on GitHub, at the commit of the model.
 
 The builder lives in `page/`. It has its own `package.json`, so the scripts above keep zero dependencies.
 Its one dependency is `elkjs`: ELK places the boxes inside each frame with a layered layout.
 The builder packs the frames, the groups and the bands itself, and routes the structure and attribute lines on its own grid.
+
+#### Zones, labels and trunks
+
+- A folder with 48 types or more is zoned. The two real models give the value: App `domain/engine` holds 105 types, and the next largest folders hold 40 (API `adapters/http`) and 34 (App `application`).
+  In a zoned folder each view frame is a zone, with a corridor of 144 units to the next zone. A type with no view goes to the zone `in no view`.
+  The router pays for each step inside a zone or a folder that a line does not join, so the lines take the corridors.
+- At the far zoom level, the lines between two zones of one zoned folder give way to one summary line, with the count of those lines on a badge.
+  The real lines show at the middle and near levels, for the chosen class, and for a pattern highlight.
+- Each folder frame and each zone frame keeps a label room at the top. The far label of the zone lives in that room, so it covers no box and no other label.
+  The room is as high as a label of one line at 0.8 of its size, at the fit zoom of a 1440 by 900 window. The packer runs three times, because the fit zoom depends on the size of the canvas.
+  On screen, a label keeps its size while its room holds it, then shrinks to 0.6 of its size, then hides. It moves right, inside its room, past a band label.
+- The `implements` lines into one type enter it on one side and meet in one port, so they share one trunk. The `extends` lines do the same.
+  The side is the one that most of these lines would take.
+- A step beside a line to another target, one track away, costs more than two bends. So long parallel lines keep two tracks apart.
 
 ### Build
 
@@ -258,7 +276,11 @@ The build writes a static site into `<site>`:
 |---|---|
 | `index.html` | the page, as a full HTML document |
 | `<repo>.model.json` | the model, byte for byte as `merge.mjs` wrote it |
-| `<repo>.positions.json` | the box, frame, band and line positions of both densities |
+| `<repo>.positions.json` | the box, frame, band and line positions of both densities, the label rooms and the summary lines |
+
+In the positions file, each line has the edge index `i`, its kind `k`, its points `p` and its label point `lb`. A line between two zones has `zx: 1`.
+Each folder frame and each zone frame has its label room `lb` as `[x, y, w, h]`. A zone frame has `zone: 1` and the ids of its boxes in `ids`.
+`sums` lists the summary lines: the frame indexes `a` and `b`, the count `n`, the points `p` and the badge point `c`.
 
 The page loads the two data files of a repository with a relative `fetch`.
 The repository switch has one button per model, in the order of the arguments, and the first model opens by default.
@@ -296,4 +318,5 @@ node geom.mjs <site>/hexablock-app.model.json <site>/hexablock-app.positions.jso
 ```
 
 `geom.mjs` prints, for each density, the count of boxes, frames and lines, the boxes that overlap, the lines that cross a box that they do not join, and the line ends off their box.
-The tests of `page/test/` run the same checks on the fixture models.
+It also prints the pairs of close parallel lines (12 units apart or less, side by side for more than 200 units), the label rooms that cover a box or another label room, and the summary lines that cross a box.
+The tests of `page/test/` run the same checks on the fixture models: no box overlap, no line across a foreign box, no label room over a box or a label, and an `aggregation` edge in the positions with its kind.
