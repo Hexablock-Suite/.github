@@ -255,6 +255,8 @@ The builder packs the frames, the groups and the bands itself, and routes the st
   The router pays for each step inside a zone or a folder that a line does not join, so the lines take the corridors.
 - At the far zoom level, the lines between two zones of one zoned folder give way to one summary line, with the count of those lines on a badge.
   The real lines show at the middle and near levels, for the chosen class, and for a pattern highlight.
+- At the middle level, a line between two zones or two folders is a ghost line: thin and pale, as background texture. The summary lines stay there, lighter.
+  A ghost line takes full ink when one of its ends is chosen, hovered or highlighted. At the near level every line has full ink.
 - Each folder frame and each zone frame keeps a label room at the top. The far label of the zone lives in that room, so it covers no box and no other label.
   The room is as high as a label of one line at 0.8 of its size, at the fit zoom of a 1440 by 900 window. The packer runs three times, because the fit zoom depends on the size of the canvas.
   On screen, a label keeps its size while its room holds it, then shrinks to 0.6 of its size, then hides. It moves right, inside its room, past a band label.

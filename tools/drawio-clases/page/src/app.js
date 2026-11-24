@@ -163,6 +163,9 @@
     $('#tags').innerHTML = tags;
     bandTags = [...document.querySelectorAll('#tags .tag')].map((el, i) => ({ el, b: P.bands[i], h: el.offsetHeight, w: el.offsetWidth }));
     let lines = '';
+    // A ghost line joins two zones, or two folders. At the middle level it is background texture, not a line to follow.
+    const folderKey = (id) => { const t = byId.get(id); return t.layer + '|' + zoneOf(t); };
+    ghostCount = 0;
     for (const ln of P.lines) {
       const e = model.edges[ln.i];
       const kk = edgeKind(e);
@@ -178,18 +181,19 @@
       }
       // A dashed line starts its dashes at the target, so lines that share a trunk keep one dash rhythm.
       const d = e.kind === 'implements' ? roundPath(pts.slice().reverse()) : roundPath(pts);
-      const extra = (e.kind === 'implements' ? ' impl' : e.kind === 'composition' ? ' comp' : e.kind === 'aggregation' ? ' agg' : '') + (ln.zx ? ' zx' : '');
+      const ghost = !!ln.zx || folderKey(e.from) !== folderKey(e.to);
+      if (ghost) ghostCount++;
+      const extra = (e.kind === 'implements' ? ' impl' : e.kind === 'composition' ? ' comp' : e.kind === 'aggregation' ? ' agg' : '') + (ln.zx ? ' zx' : '') + (ghost ? ' gh' : '');
       lines += '<g class="e ' + kk + extra + '" data-i="' + ln.i + '"><path class="ln" d="' + d + '"/><path class="hd" d="' + h.d + '"/></g>';
     }
     // A summary line stands for the lines between two zones on the far map. Its badge gives their count.
     let sums = '';
-    sumBadges = [];
+    sumBadges = P.sums || [];
     for (const sm of P.sums || []) {
       const a = P.frames[sm.a], b = P.frames[sm.b];
       const say = sm.n + (sm.n === 1 ? ' line' : ' lines') + ' between ' + zoneName(a.title) + ' and ' + zoneName(b.title);
       sums += '<g class="sum L' + a.layer + '"><title>' + esc(say) + '</title><path class="ln" d="' + roundPath(sm.p, 14) + '"/>' +
         '<g class="sc"><rect x="' + (-badgeW(sm.n) / 2).toFixed(1) + '" y="-9" width="' + badgeW(sm.n).toFixed(1) + '" height="18" rx="9"/><text y="4.2">' + sm.n + '</text></g></g>';
-      sumBadges.push(sm.c);
     }
     // Boxes go in reading order, so Tab follows bands, then rows, then columns.
     const order = model.types.filter((t) => P.boxes[t.id]).sort((a, b) => {
@@ -203,6 +207,9 @@
     $('#lines').innerHTML = lines;
     $('#sums').innerHTML = sums;
     sumEls = [...document.querySelectorAll('#sums .sc')];
+    lastBadgeK = -1;
+    // The legend shows the ghost line only when the model has one.
+    app.classList.toggle('has-ghosts', ghostCount > 0);
     $('#boxes').innerHTML = boxes;
     $('#titles').innerHTML = tl;
     $('#others').innerHTML = '';
@@ -284,20 +291,41 @@
       }
       z.el.setAttribute('transform', 'translate(' + ((x0 - tx) / k).toFixed(1) + ' ' + ((y0 - ty) / k).toFixed(1) + ') scale(' + (s / k).toFixed(4) + ')');
     }
-    // The count badges of the summary lines keep a constant size on screen.
+  }
+
+  // layoutBadges puts the count badge of each summary line on its route, at a constant size on screen.
+  // A badge tries the middle of its longest run first, then other points of its runs, longest run first.
+  // It takes the first point where it touches no box and no badge placed before it.
+  // When no point is free, it keeps the middle of its longest run.
+  const BADGE_TRIES = [0.5, 0.3, 0.7, 0.15, 0.85];
+  function layoutBadges() {
     const sc = 'scale(' + (1 / k).toFixed(4) + ')';
-    sumEls.forEach((el, i) => el.setAttribute('transform', 'translate(' + sumBadges[i][0] + ' ' + sumBadges[i][1] + ') ' + sc));
+    const placed = [];
+    const boxes = Object.values(P.boxes);
+    const clear = (r) => !boxes.some((b) => r[0] < b[0] + b[2] && b[0] < r[2] && r[1] < b[1] + b[3] && b[1] < r[3]) &&
+      !placed.some((q) => r[0] < q[2] && q[0] < r[2] && r[1] < q[3] && q[1] < r[3]);
+    sumBadges.forEach((sm, i) => {
+      const hw = (badgeW(sm.n) / 2 + 3) / k, hh = 12 / k;
+      const runs = sm.p.slice(1).map((q, j) => [sm.p[j], q]).sort((a, b) => (Math.abs(b[1][0] - b[0][0]) + Math.abs(b[1][1] - b[0][1])) - (Math.abs(a[1][0] - a[0][0]) + Math.abs(a[1][1] - a[0][1])));
+      let at = sm.c;
+      search: for (const [a, b] of runs) for (const f of BADGE_TRIES) {
+        const c = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+        if (clear([c[0] - hw, c[1] - hh, c[0] + hw, c[1] + hh])) { at = c; break search; }
+      }
+      placed.push([at[0] - hw, at[1] - hh, at[0] + hw, at[1] + hh]);
+      sumEls[i].setAttribute('transform', 'translate(' + at[0].toFixed(1) + ' ' + at[1].toFixed(1) + ') ' + sc);
+    });
   }
 
   // ---------- view transform ----------
   let lastScale = -1, titleFrame = 0, lastBoost = '';
-  let sumEls = [], sumBadges = [];
+  let sumEls = [], sumBadges = [], ghostCount = 0, lastBadgeK = -1;
   // badgeW gives the width of the count badge of a summary line.
   const badgeW = (n) => String(n).length * 7.4 + 14;
   function apply() {
     vp.setAttribute('transform', 'translate(' + tx.toFixed(2) + ' ' + ty.toFixed(2) + ') scale(' + k.toFixed(5) + ')');
     const lod = k < LOD1 ? 'lod0' : k < LOD2 ? 'lod1' : 'lod2';
-    if (!cv.classList.contains(lod)) { cv.classList.remove('lod0', 'lod1', 'lod2'); cv.classList.add(lod); }
+    if (!cv.classList.contains(lod)) { cv.classList.remove('lod0', 'lod1', 'lod2'); cv.classList.add(lod); app.dataset.lod = lod; }
     // The middle level grows names toward 8.5px on screen. The value changes in steps, so style work stays rare.
     if (lod === 'lod1') {
       const nb = Math.min(1.5, Math.max(1, 8.5 / (12 * k))).toFixed(2), sb = Math.min(1.9, Math.max(1, 7 / (8 * k))).toFixed(2);
@@ -341,6 +369,8 @@
     titleFrame = 0;
     const far = k < LOD1;
     if (far && (lastTx !== tx || lastTy !== ty || Math.abs(lastScale - k) > 1e-4)) { lastTx = tx; lastTy = ty; layoutZones(); }
+    // The summary lines show at the far and middle levels. Their badges depend on the zoom only.
+    if (k < LOD2 && Math.abs(lastBadgeK - k) > 1e-4) { lastBadgeK = k; layoutBadges(); }
     if (Math.abs(lastScale - k) < 1e-4) return;
     lastScale = k;
     const target = { g: 11.5, v: 10.5 };
@@ -710,6 +740,8 @@
     for (const [i, g] of lineEl) {
       const e = model.edges[i];
       g.classList.toggle('lit', !!hl && (hl.edges ? hl.edges.has(i) : hl.ids.has(e.from) && hl.ids.has(e.to)));
+      // A ghost line with one lit end shows at full ink, so the highlight shows where its set connects.
+      g.classList.toggle('hle', !!hl && !hl.edges && g.classList.contains('gh') && (hl.ids.has(e.from) || hl.ids.has(e.to)));
     }
     if (zones.length && zones[0].el) fillZones();
     $('#hl-chip').hidden = !hl;
@@ -994,6 +1026,7 @@
     stat: '<svg viewBox="0 0 30 14" aria-hidden="true"><text class="sw-u" x="1" y="10">+ of()</text></svg>',
     abs: '<svg viewBox="0 0 30 14" aria-hidden="true"><text class="sw-i" x="1" y="10.5">Base</text></svg>',
     zone: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-zone" x="1" y="1" width="28" height="12" rx="2"/><rect class="sw-block" x="5" y="5" width="9" height="5" rx="1"/><rect class="sw-block" x="16" y="5" width="9" height="5" rx="1"/></svg>',
+    ghost: '<svg viewBox="0 0 30 14" aria-hidden="true" class="gl gh"><path d="M1 7h27"/></svg>',
     sel: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-sel" x="1" y="2" width="28" height="10" rx="2"/></svg>',
     dpt: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-tab-dpt" x="1" y="3" width="28" height="8" rx="2"/></svg>',
     dep: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-tab-dep" x="1.5" y="3" width="27" height="8" rx="2"/></svg>',
@@ -1032,6 +1065,7 @@
     if (['compact', 'full'].some((d) => (positions[d].sums || []).length)) {
       h += li(LG.sum, 'A large folder shows each view as a zone. From far away, the lines between two zones are one line with their count. Zoom in to see each line.');
     }
+    h += li(LG.ghost, 'Ghost line, at the middle zoom: a line between two zones or two folders. It takes full ink for a chosen, hovered or highlighted end.', 'lg-ghost');
     h += li(LG.sel, 'Chosen class.');
     h += li(LG.dpt, 'Dependent tab. This class depends on the chosen class.');
     h += li(LG.dep, 'Dependency tab. The chosen class depends on this class.');

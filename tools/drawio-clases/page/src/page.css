@@ -11,6 +11,8 @@
   --l1: #f9f4dc; --l1-a: #9a4506; --l2: #efe7f8; --l2-a: #7e22ce;
   --l3: #e2ebf8; --l3-a: #1d4ed8; --l4: #cfdcf3; --l4-a: #1e3a8a;
   --shadow: rgb(23 33 42 / .16);
+  /* Ghost lines: 1.55:1 on the darkest light tint (--l4) and 1.94:1 on the lightest (--l1). */
+  --ghost: #a9b2bb;
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
   --font-serif: 'Instrument Serif', Georgia, serif;
@@ -27,6 +29,7 @@
     --l1: #2b2611; --l1-a: #e6a957; --l2: #261b37; --l2-a: #c9a0f5;
     --l3: #152437; --l3-a: #8cb2f6; --l4: #141e37; --l4-a: #aebdf0;
     --shadow: rgb(0 0 0 / .5);
+    --ghost: #465260;
     color-scheme: dark;
   }
 }
@@ -37,6 +40,8 @@
   --l1: #2b2611; --l1-a: #e6a957; --l2: #261b37; --l2-a: #c9a0f5;
   --l3: #152437; --l3-a: #8cb2f6; --l4: #141e37; --l4-a: #aebdf0;
   --shadow: rgb(0 0 0 / .5);
+  /* Ghost lines: 1.90:1 on the darkest dark tint (--l1) and 2.07:1 on the lightest (--l4). */
+  --ghost: #465260;
   color-scheme: dark;
 }
 
@@ -223,7 +228,10 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 .sum .sc rect { fill: var(--surface); stroke: color-mix(in srgb, var(--la) 55%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .sum .sc text { font: 600 11px var(--font-sans); fill: var(--la); text-anchor: middle; font-variant-numeric: tabular-nums; }
 #sums { transition: opacity .25s ease-out, visibility 0s; }
-#cv:not(.lod0) #sums { opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s; }
+#cv.lod2 #sums { opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s; }
+/* Middle: the summary lines stay, lighter, so the reader still sees how the zones connect. */
+#cv.lod1 #sums .ln { stroke-width: 1.6; opacity: .45; }
+#cv.lod1 #sums .sc { opacity: .8; }
 #cv.has-sel #sums, #cv.has-hl #sums { opacity: .08; }
 /* Far: only the structure lines stay, thin. Attribute lines come back at the middle level.
    The lines between two zones give way to their summary line. They come back at the middle level.
@@ -238,6 +246,14 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 #cv.lod1.dense .e.s .ln { stroke-width: 1.2; }
 #others.many .e { opacity: .55; }
 #cv.hide-s .e.s, #cv.hide-a .e.a, #cv.hide-o #others { display: none; }
+/* Middle: a ghost line joins two zones or two folders. It is thin and pale, so it reads as texture.
+   It takes full ink again for a chosen, hovered or highlighted end. The «Lines» menu still hides its kind. */
+#cv.lod1 .e.gh:not(.on):not(.hv):not(.hle):not(.lit) .ln, #cv.lod1 .e.gh:not(.on):not(.hv):not(.hle):not(.lit) .hd {
+  stroke: var(--ghost); stroke-width: .8; opacity: 1; }
+#cv.lod1 .e.gh:not(.on):not(.hv):not(.hle):not(.lit) .hd { fill: none; }
+#cv.lod1 .e.gh.impl:not(.on):not(.hv):not(.hle):not(.lit) .ln { stroke-dasharray: 3 3; }
+/* With a highlight, a ghost line with one lit end stays at full ink, like a lit line. */
+#cv.has-hl:not(.has-sel) .e.gh.hle { opacity: 1; }
 .lb rect { fill: var(--halo); stroke: var(--box-rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .lb text { font: 9px var(--font-mono); fill: var(--ink); }
 .lb.o text { fill: var(--muted); }
@@ -308,6 +324,9 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 .legend .sw-tab-dpt { fill: var(--ink); }
 .legend .sw-tab-dep { fill: var(--surface); stroke: var(--focal); }
 .legend .sw-i { font: italic 600 10px var(--font-sans); fill: var(--ink); }
+.legend .gl.gh { stroke: var(--ghost); stroke-width: 1; }
+.legend .lg-ghost { display: none; }
+.has-ghosts[data-lod="lod1"] .legend .lg-ghost { display: flex; }
 .legend .sw-sum path { stroke: color-mix(in srgb, var(--la) 62%, transparent); stroke-width: 2.4; }
 .legend .sw-sum rect { fill: var(--surface); stroke: color-mix(in srgb, var(--la) 55%, transparent); }
 
