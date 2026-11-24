@@ -205,7 +205,7 @@ The id of each cell comes from the page id and the type ids or the edge key.
 | (f) | The legend of each page lists exactly the line kinds and box kinds of that page (rule 13). |
 | (g) | The XML parses. |
 | (h) | Every line has a fixed exit, a fixed entry and waypoints, with no diagonal segment. No segment enters a class box, a reference box or a type parameter box, except the two boxes that the line joins. |
-| (i) | A class or interface box with no operation says why. A planned box shows `members not designed yet`. A code class box shows `«dataType»` or a stereotype of the `stereotypeFor` map of the config. A code interface box shows `«interface»`. Any other class or interface with no operation is a violation. Types, unions, enums and consts are exempt. |
+| (i) | A class or interface box with no operation says why. A planned box shows `members not designed yet`. A code class box shows `«dataType»` or a stereotype of the `stereotypeFor` map of the config. A code interface box shows `«interface»`, or `«port»` when it is a port. Any other class or interface with no operation is a violation. Types, unions, enums and consts are exempt. |
 
 `fixtures/mini.model.json` is a small model with all four layers, two parts and every edge kind.
 `fixtures/broken.drawio` breaks rule 3, rule 9 and check (h) on purpose: `check.mjs` must fail on it.

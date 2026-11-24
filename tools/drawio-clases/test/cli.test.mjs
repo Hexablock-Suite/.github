@@ -350,7 +350,8 @@ test('S2: a .drawio file that does not exist stops pin.mjs with one error line, 
 
 // notationModel runs merge() on code types of every kind and writes the model.
 // The types sit in layer 2 of one part. Each type has the shape that extract() gives.
-function notationModel() {
+// change(model) edits the model before gen.mjs reads it.
+function notationModel(change = () => {}) {
   const codeType = (name, kind, more = {}) => ({
     id: name, name, kind, abstract: false, exported: true, file: `src/${name}.ts`, line: 1,
     typeParams: [], attrs: [], ops: [], values: [], alias: null, ...more,
@@ -369,7 +370,9 @@ function notationModel() {
     edges: [],
   };
   const cfg = { repo: 'mini', parts: [{ id: 'core', title: 'Core', layers: [1, 2, 3, 4] }], views: {}, folders: [{ path: 'src/', layer: 2, part: 'core' }], patterns: {} };
-  const modelFile = writeJson('notation.model.json', merge(code, [], cfg).model);
+  const { model } = merge(code, [], cfg);
+  change(model);
+  const modelFile = writeJson('notation.model.json', model);
   const out = tmp('notation.drawio');
   const r = run('gen.mjs', [modelFile, out]);
   assert.equal(r.status, 0, r.stderr);
@@ -395,6 +398,16 @@ test('S5c: a type alias prints no «type» word', () => {
 test('S5c: an interface with no operation prints «interface» alone, and check.mjs accepts it', () => {
   const { modelFile, out } = notationModel();
   assert.deepEqual(headOf(out, 'MoveRequest'), ['«interface»', 'MoveRequest']);
+  const c = run('check.mjs', [out, modelFile]);
+  assert.equal(c.status, 0, c.stdout);
+});
+
+test('previous behavior: check.mjs accepts a port with no operation, which prints «port» alone', () => {
+  // merge() gives «port» to a layer-2 interface that an outer layer implements, and gen.mjs then adds no «interface».
+  const { modelFile, out } = notationModel((model) => {
+    model.types.find((t) => t.id === 'MoveRequest').stereotypes = ['port'];
+  });
+  assert.deepEqual(headOf(out, 'MoveRequest'), ['«port»', 'MoveRequest']);
   const c = run('check.mjs', [out, modelFile]);
   assert.equal(c.status, 0, c.stdout);
 });
