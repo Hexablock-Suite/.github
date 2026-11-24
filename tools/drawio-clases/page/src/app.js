@@ -921,7 +921,8 @@
   });
   cv.addEventListener('focusin', (ev) => {
     const g = closest(ev.target, '.box');
-    if (g) ensureVisible(g.dataset.id);
+    // Only a focus from the keyboard brings its box into view. A mouse press also gives the focus, and it starts a drag.
+    if (g && g.matches(':focus-visible')) ensureVisible(g.dataset.id);
   });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {

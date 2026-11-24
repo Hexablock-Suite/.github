@@ -278,6 +278,7 @@ So the page does not draw each step of a zoom. It keeps two views: the asked vie
   The text of a preview is a little soft. On a zoom out, the edge of the stage is empty until the next draw.
 - A pan keeps the scale, so it draws at once.
 - While the scale changes, a level switch has no fade. A fade of every text draws the whole diagram on each frame.
+- A box that takes the focus from the keyboard comes into view. A mouse press also gives the focus, but it starts a drag, so it does not move the view.
 
 ### Build
 

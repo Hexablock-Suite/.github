@@ -1,4 +1,4 @@
-// zoom.test.mjs checks the wheel zoom of the built page in a headless Chromium.
+// zoom.test.mjs checks the wheel zoom and the drag of the built page in a headless Chromium.
 // The build needs no browser, so these tests skip on a machine with no Chromium.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -101,4 +101,36 @@ test('zoom: a preview that comes back to the drawn scale leaves no preview behin
   await page.sleep(500);
   assert.equal(await page.eval("document.getElementById('cv').style.transform"), '');
   assert.ok(Math.abs((await drawn()).k - 3) < 1e-6, `scale ${(await drawn()).k}`);
+});
+
+test('drag: at the far level, a drag that starts on a box moves the view and keeps the scale', { skip }, async () => {
+  await open();
+  // The far level starts under the scale 0.44.
+  for (let i = 0; i < 400 && (await drawn()).k >= 0.4; i++) { await wheel(600, 400, 40); await page.sleep(10); }
+  await settle();
+  const start = await drawn();
+  assert.ok(start.k < 0.44, `scale ${start.k} is not at the far level`);
+  const [x, y] = await page.eval("(() => { const b = document.querySelector('#boxes .box').getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; })()");
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+  for (let i = 1; i <= 10; i++) { await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + i * 6, y: y + i * 3, button: 'left', buttons: 1 }); await page.sleep(16); }
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + 60, y: y + 30, button: 'left', clickCount: 1 });
+  await page.sleep(700);
+  await settle();
+  const end = await drawn();
+  assert.ok(Math.abs(end.k - start.k) < 1e-4, `scale went from ${start.k} to ${end.k}`);
+  assert.ok(Math.abs(end.tx - start.tx - 60) < 1 && Math.abs(end.ty - start.ty - 30) < 1, `the view moved by ${end.tx - start.tx}, ${end.ty - start.ty}`);
+});
+
+test('keyboard: a box that takes the focus from the Tab key still comes into view', { skip }, async () => {
+  await open();
+  for (let i = 0; i < 400 && (await drawn()).k >= 0.4; i++) { await wheel(600, 400, 40); await page.sleep(10); }
+  await settle();
+  await page.eval("document.getElementById('cv').focus()");
+  await page.key('Tab', 'Tab', 9);
+  await page.sleep(700);
+  await settle();
+  assert.equal(await page.eval("!!document.activeElement.closest('.box')"), true, 'the Tab key did not reach a box');
+  // ensureVisible centers a focused box at the near level, 0.9, when the page is at the far level.
+  assert.ok(Math.abs((await drawn()).k - 0.9) < 1e-3, `scale ${(await drawn()).k}`);
 });
