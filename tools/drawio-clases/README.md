@@ -255,9 +255,10 @@ The builder packs the frames, the groups and the bands itself, and routes the st
 - A folder with 48 types or more is zoned. The two real models give the value: App `domain/engine` holds 105 types, and the next largest folders hold 40 (API `adapters/http`) and 34 (App `application`).
   In a zoned folder each view frame is a zone, with a corridor of 144 units to the next zone. A type with no view goes to the zone `in no view`.
   The router pays for each step inside a zone or a folder that a line does not join, so the lines take the corridors.
-- At the far zoom level, the lines between two zones of one zoned folder give way to one summary line, with the count of those lines on a badge.
-  The real lines show at the middle and near levels, for the chosen class, and for a pattern highlight.
-- At the middle level, a line between two zones or two folders is a ghost line: thin and pale, as background texture. The summary lines stay there, lighter.
+- The frame of a zone is a plate with a solid border, so the reader sees where the zone ends. A plain view frame stays a faint dashed hint.
+- At the far zoom level, the lines between two zones of one zoned folder hide. The zone labels say what each zone holds.
+  Those lines show at the middle and near levels, for the chosen class, and for a pattern highlight.
+- At the middle level, a line between two zones or two folders is a ghost line: thin and pale, as background texture.
   A ghost line takes full ink when one of its ends is chosen, hovered or highlighted. At the near level every line has full ink.
 - Each folder frame and each zone frame keeps a label room at the top. The far label of the zone lives in that room, so it covers no box and no other label.
   The room is as high as a label of one line at 0.8 of its size, at the fit zoom of a 1440 by 900 window. The packer runs three times, because the fit zoom depends on the size of the canvas.
@@ -280,11 +281,10 @@ The build writes a static site into `<site>`:
 |---|---|
 | `index.html` | the page, as a full HTML document |
 | `<repo>.model.json` | the model, byte for byte as `merge.mjs` wrote it |
-| `<repo>.positions.json` | the box, frame, band and line positions of both densities, the label rooms and the summary lines |
+| `<repo>.positions.json` | the box, frame, band and line positions of both densities, and the label rooms |
 
 In the positions file, each line has the edge index `i`, its kind `k`, its points `p` and its label point `lb`. A line between two zones has `zx: 1`.
 Each folder frame and each zone frame has its label room `lb` as `[x, y, w, h]`. A zone frame has `zone: 1` and the ids of its boxes in `ids`.
-`sums` lists the summary lines: the frame indexes `a` and `b`, the count `n`, the points `p` and the badge point `c`.
 
 The page loads the two data files of a repository with a relative `fetch`.
 The repository switch has one button per model, in the order of the arguments, and the first model opens by default.
@@ -338,5 +338,5 @@ node geom.mjs <site>/hexablock-app.model.json <site>/hexablock-app.positions.jso
 ```
 
 `geom.mjs` prints, for each density, the count of boxes, frames and lines, the boxes that overlap, the lines that cross a box that they do not join, and the line ends off their box.
-It also prints the pairs of close parallel lines (12 units apart or less, side by side for more than 200 units), the label rooms that cover a box or another label room, and the summary lines that cross a box.
+It also prints the pairs of close parallel lines (12 units apart or less, side by side for more than 200 units), and the label rooms that cover a box or another label room.
 The tests of `page/test/` run the same checks on the fixture models: no box overlap, no line across a foreign box, no label room over a box or a label, and an `aggregation` edge in the positions with its kind.

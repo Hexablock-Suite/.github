@@ -300,7 +300,7 @@ export async function layoutModel(model) {
     const groupFrames = frames.filter((f) => f.kind === 'g');
 
     // 4. Zones: a routed line between two zones of one zoned folder is a zone line.
-    // Each pair of zones that zone lines join gets one summary line, with the count of its zone lines.
+    // The page hides a zone line at the far zoom level, where the zone labels say what each zone holds.
     const zoneFrames = [];
     const zoneOfBox = new Map();
     frames.forEach((f, fi) => {
@@ -309,19 +309,15 @@ export async function layoutModel(model) {
       zoneFrames.push({ fi, f });
     });
     const zoneLines = new Set();
-    const pairs = new Map();
     for (const { e, i } of routedEdges) {
       const za = zoneOfBox.get(e.from), zb = zoneOfBox.get(e.to);
       if (za === undefined || zb === undefined || za === zb || groupOf.get(e.from) !== groupOf.get(e.to)) continue;
       zoneLines.add(i);
-      const key = Math.min(za, zb) * 65536 + Math.max(za, zb);
-      pairs.set(key, (pairs.get(key) || 0) + 1);
     }
-    const sumSpecs = [...pairs].sort((p, q) => p[0] - q[0]).map(([key, n]) => ({ a: Math.floor(key / 65536), b: key % 65536, n }));
 
-    const { lines, sums, failed } = route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, groupFrames, W, H, groupIdx: (id) => groupOf.get(id), zoneOfBox });
+    const { lines, failed } = route({ model, routedEdges, tpWidth, boxes, zoneFrames, groupFrames, W, H, groupIdx: (id) => groupOf.get(id), zoneOfBox });
     for (const l of lines) if (zoneLines.has(l.i)) l.zx = 1;
-    return { failed, layout: { w: W, h: H, bands, frames, boxes, lines, sums } };
+    return { failed, layout: { w: W, h: H, bands, frames, boxes, lines } };
   }
 
   const positions = { layout: 'elk-per-container + own packing + own grid router' };
@@ -368,8 +364,7 @@ function shelf(items, limit, gx, gy, justify = false) {
 // A grid point near a box is blocked, so no line crosses a box.
 // A step on a track that a line to another target already uses costs more, so lines keep apart.
 // A step inside a folder or a zone that the line does not join costs more, so lines take the corridors.
-// After the model lines, it draws one summary line for each pair of zones in sumSpecs, from frame border to frame border.
-function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, groupFrames, W, H, groupIdx, zoneOfBox }) {
+function route({ model, routedEdges, tpWidth, boxes, zoneFrames, groupFrames, W, H, groupIdx, zoneOfBox }) {
   const NX = Math.floor(W / G) + 1, NY = Math.floor(H / G) + 1;
   const INF = 8; // A line keeps this distance from every box.
   const blocked = new Uint8Array(NX * NY);
@@ -383,12 +378,7 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
       }
     }
   }
-  // A summary line joins two zone frames. Its ends use the frame as a box, but the frame blocks no grid point.
-  const zoneId = (z) => '~z' + z;
-  const rects = { ...boxes };
-  zoneFrames.forEach(({ f }, z) => { rects[zoneId(z)] = [f.x, f.y, f.w, f.h]; });
-  const zoneIdx = (id) => (id.startsWith('~z') ? +id.slice(2) : zoneOfBox.has(id) ? zoneOfBox.get(id) : -1);
-  const groupOfEnd = (id) => (id.startsWith('~z') ? groupIdx(zoneFrames[+id.slice(2)].f.ids[0]) : groupIdx(id));
+  const zoneIdx = (id) => (zoneOfBox.has(id) ? zoneOfBox.get(id) : -1);
   // Each grid point knows its folder group and its zone, so a line pays to cross a group or a zone that is not its own.
   // The group index of a frame follows the order of groupFrames, which is the order of groups.
   const mapFrames = (list) => {
@@ -412,13 +402,9 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
     if (b[0] >= a[0] + a[2]) return ['r', 'l'];
     return ['l', 'r'];
   };
-  const specs = [
-    ...routedEdges.map(({ e, i }) => ({ e, i, sum: null })),
-    ...sumSpecs.map((s) => ({ e: { from: zoneId(s.a), to: zoneId(s.b), kind: 'use', label: null }, i: -1, sum: s })),
-  ];
-  const lines = specs.map(({ e, i, sum }) => {
-    const [sa, sb] = sidesOf(rects[e.from], rects[e.to]);
-    return { e, i, sum, ends: [{ id: e.from, side: sa, other: e.to, lineTo: e.to, kind: e.kind }, { id: e.to, side: sb, other: e.from, lineTo: e.to, kind: e.kind }] };
+  const lines = routedEdges.map(({ e, i }) => {
+    const [sa, sb] = sidesOf(boxes[e.from], boxes[e.to]);
+    return { e, i, ends: [{ id: e.from, side: sa, other: e.to, lineTo: e.to, kind: e.kind }, { id: e.to, side: sb, other: e.from, lineTo: e.to, kind: e.kind }] };
   });
   // The implements lines into one type enter it on one side, and so do its extends lines.
   // So they meet in one port and share one trunk, as UML draws a shared target.
@@ -436,13 +422,13 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
     const votes = new Map();
     for (const l of list) votes.set(l.ends[1].side, (votes.get(l.ends[1].side) || 0) + 1);
     const side = ['t', 'b', 'l', 'r'].reduce((best, s) => ((votes.get(s) || 0) > (votes.get(best) || 0) ? s : best), 't');
-    const [x, y, w, h] = rects[list[0].e.to];
+    const [x, y, w, h] = boxes[list[0].e.to];
     // The far end leaves its box on the side that faces the point just outside the shared port.
     const mid = { t: [x + w / 2, y], b: [x + w / 2, y + h], l: [x, y + h / 2], r: [x + w, y + h / 2] }[side];
     const near = [mid[0] + OUT[side][0] * 2 * G, mid[1] + OUT[side][1] * 2 * G];
     for (const l of list) {
       if (l.ends[1].side === side) continue;
-      const [ax, ay, aw, ah] = rects[l.e.from];
+      const [ax, ay, aw, ah] = boxes[l.e.from];
       l.ends[1].side = side;
       l.ends[0].side = near[1] >= ay + ah + G ? 'b' : near[1] <= ay - G ? 't' : near[0] >= ax + aw ? 'r' : 'l';
     }
@@ -453,11 +439,11 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
     if (!ends.has(key)) ends.set(key, []);
     ends.get(key).push(en);
   }
-  const center = (id) => [rects[id][0] + rects[id][2] / 2, rects[id][1] + rects[id][3] / 2];
+  const center = (id) => [boxes[id][0] + boxes[id][2] / 2, boxes[id][1] + boxes[id][3] / 2];
   for (const [key, list] of ends) {
     const cut = key.lastIndexOf('|');
     const id = key.slice(0, cut), side = key.slice(cut + 1);
-    const [x, y, w, h] = rects[id];
+    const [x, y, w, h] = boxes[id];
     const horiz = side === 't' || side === 'b';
     // Ends that go to one other box share one port.
     // Structure lines of one kind into one target also share one port, so they meet in one trunk.
@@ -497,7 +483,7 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
   }
   // portOf gives the point on the box side and the first free grid point outside it.
   const portOf = (en) => {
-    const [x, y, w, h] = rects[en.id];
+    const [x, y, w, h] = boxes[en.id];
     const s = en.slot * G;
     if (en.side === 't') return { p: [s, y], g: [en.slot, Math.floor((y - INF) / G)], dir: 3 };
     if (en.side === 'b') return { p: [s, y + h], g: [en.slot, Math.ceil((y + h + INF) / G)], dir: 2 };
@@ -539,7 +525,7 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
     return top;
   };
 
-  const tIndex = new Map(Object.keys(rects).map((id, k) => [id, k]));
+  const tIndex = new Map(Object.keys(boxes).map((id, k) => [id, k]));
   // lineKey groups the lines that may share a track: one target and one kind.
   const kindCode = { use: 0, implements: 1, extends: 2, aggregation: 3, composition: 4 };
   const lineKey = (l) => tIndex.get(l.e.to) * 5 + kindCode[l.e.kind];
@@ -549,7 +535,7 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
     hn = 0;
     const tk = lineKey(l);
     const structure = l.e.kind !== 'use';
-    const gA = groupOfEnd(l.e.from), gB = groupOfEnd(l.e.to);
+    const gA = groupIdx(l.e.from), gB = groupIdx(l.e.to);
     const zA = zoneIdx(l.e.from), zB = zoneIdx(l.e.to);
     const [sx, sy] = from.g, [ex, ey] = to.g;
     const needDir = to.dir ^ 1; // Arrive moving toward the box.
@@ -620,24 +606,22 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
   };
 
   // Short lines go first, so they take the direct tracks.
-  // The summary lines come last, in one pass, so they never move a model line.
   for (const l of lines) { l.from = portOf(l.ends[0]); l.to = portOf(l.ends[1]); }
   const span = (l) => Math.abs(l.from.g[0] - l.to.g[0]) + Math.abs(l.from.g[1] - l.to.g[1]);
-  const order = lines.filter((l) => !l.sum).sort((p, q) => span(p) - span(q));
+  const order = lines.slice().sort((p, q) => span(p) - span(q));
   let failed = 0;
   const pass = (list, last) => {
     for (const l of list) {
       const tk = lineKey(l);
       if (l.grid) mark(l.grid, tk, -1);
       const g = astar(l, l.from, l.to);
-      if (!g) { if (last && !l.sum) failed++; l.grid = null; continue; }
+      if (!g) { if (last) failed++; l.grid = null; continue; }
       l.grid = g;
       mark(g, tk, 1);
     }
   };
   pass(order, false);
   pass(order, true);
-  pass(lines.filter((l) => l.sum), true);
   const r1 = (v) => Math.round(v * 2) / 2;
   // pathOf drops the points in the middle of a straight run.
   const pathOf = (l) => {
@@ -651,7 +635,7 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
     }
     return p;
   };
-  const out = lines.filter((l) => l.grid && !l.sum).map((l) => {
+  const out = lines.filter((l) => l.grid).map((l) => {
     const p = pathOf(l);
     // k is the kind of the edge, so a reader of the positions file sees a diamond or a triangle without the model.
     const res = { i: l.i, k: l.e.kind, p: p.map((q) => [r1(q[0]), r1(q[1])]) };
@@ -663,16 +647,5 @@ function route({ model, routedEdges, sumSpecs, tpWidth, boxes, zoneFrames, group
     }
     return res;
   }).sort((a, b) => a.i - b.i);
-  // A summary line gives its two frames by their index in the frame list, its count and its route.
-  // c is the middle of its longest run, where the page puts the count.
-  const sums = lines.filter((l) => l.grid && l.sum).map((l) => {
-    const p = pathOf(l).map((q) => [r1(q[0]), r1(q[1])]);
-    let best = 0, c = p[0];
-    for (let k = 0; k < p.length - 1; k++) {
-      const len = Math.abs(p[k + 1][0] - p[k][0]) + Math.abs(p[k + 1][1] - p[k][1]);
-      if (len > best) { best = len; c = [(p[k][0] + p[k + 1][0]) / 2, (p[k][1] + p[k + 1][1]) / 2]; }
-    }
-    return { a: zoneFrames[l.sum.a].fi, b: zoneFrames[l.sum.b].fi, n: l.sum.n, p, c };
-  });
-  return { lines: out, sums, failed };
+  return { lines: out, failed };
 }

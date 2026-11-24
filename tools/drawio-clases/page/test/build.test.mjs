@@ -338,7 +338,7 @@ test('S2a: a folder of 48 types or more draws each view as a zone, with corridor
   assert.equal(big.pos.compact.frames.filter((f) => f.kind === 'v').length, 2);
 });
 
-test('S2a: the lines between two zones get one summary line with their count, for the far zoom level', () => {
+test('S2a: a line between two zones carries the flag zx, and the layout draws no summary line', () => {
   const zoned = fixtureSites().find((s) => s.repo === 'hexablock-zoned');
   const { model } = zoned;
   for (const density of ['compact', 'full']) {
@@ -349,18 +349,21 @@ test('S2a: the lines between two zones get one summary line with their count, fo
     const cross = P.lines.filter((l) => zoneOf.get(model.edges[l.i].from) !== zoneOf.get(model.edges[l.i].to));
     assert.deepEqual(cross.map((l) => model.edges[l.i].label).sort(), ['cells *', 'next 1', 'peer 1']);
     for (const l of P.lines) assert.equal(!!l.zx, cross.includes(l), `${density} line ${l.i}`);
-    const title = (fi) => P.frames[fi].title;
-    const sums = P.sums.map((s) => [title(s.a), title(s.b), s.n].join(' ')).sort();
-    assert.deepEqual(sums, ['view zone-1-a view zone-2-b 2', 'view zone-2-b view zone-3-c 1']);
-    for (const s of P.sums) {
-      const a = P.frames[s.a], b = P.frames[s.b];
-      assert.ok(onBorder(s.p[0], [a.x, a.y, a.w, a.h]) && onBorder(s.p[s.p.length - 1], [b.x, b.y, b.w, b.h]), `${density}: ${s.p}`);
-      assert.equal(s.c.length, 2);
-    }
-    const g = checkGeometry(model, P);
-    assert.equal(g.sums, 2);
-    assert.equal(g.sumCrossings, 0, `${density}: ${g.crossList.join(' ')}`);
+    // The zone labels and the real lines say how the zones connect. No line with a count stands for them.
+    assert.equal('sums' in P, false, `${density}: the positions list summary lines`);
   }
+  const page = readFileSync(path.join(build([writeJson('zoned-page.model.json', zonedModel())]).out, 'index.html'), 'utf8');
+  assert.equal(/id="sums"|class="sum\b|sw-sum/.test(page), false, 'the page still draws a summary line');
+});
+
+test('S2a: the page marks the frame of a zone, so the reader sees where each zone ends', () => {
+  const page = readFileSync(path.join(build([writeJson('zoned-frame.model.json', zonedModel())]).out, 'index.html'), 'utf8');
+  // app.js gives the class fr-z to the frame of a zone, and page.css gives that class a fill and a solid border.
+  assert.match(page, /f\.zone \? ' fr-z' : ''/);
+  const rule = page.match(/\.fr-z \{[^}]*\}/);
+  assert.ok(rule, 'page.css has no rule for a zone frame');
+  assert.match(rule[0], /fill: (?!none)/);
+  assert.match(rule[0], /stroke-dasharray: none/);
 });
 
 test('S2b: the implements lines into one interface end at one point, so they share one trunk', () => {
