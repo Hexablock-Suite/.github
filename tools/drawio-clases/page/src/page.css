@@ -1,0 +1,360 @@
+/* The page is one screen: a tool bar, then the canvas. The canvas holds the
+   whole class model of one repository in four layer bands, outer layer at the top.
+   A switch in the tool bar loads the model of the other repository. A side panel
+   (a bottom sheet on a phone) shows the chosen class in full.
+   The canvas has three zoom levels. Far shows folder zones, middle shows names,
+   near shows members and the labels of the chosen class. */
+:root {
+  --bg: #f3f5f6; --surface: #ffffff; --ink: #17212a; --muted: #515d68; --rule: #d3d9de;
+  --box-line: #17212a; --box-rule: #c9d0d6; --wire: #5b6873; --wire-s: #17212a; --other: #6b7884;
+  --focal: #0f6f74; --focal-fg: #ffffff; --focal-tint: #dcebe8; --halo: #ffffff;
+  --l1: #f9f4dc; --l1-a: #9a4506; --l2: #efe7f8; --l2-a: #7e22ce;
+  --l3: #e2ebf8; --l3-a: #1d4ed8; --l4: #cfdcf3; --l4-a: #1e3a8a;
+  --shadow: rgb(23 33 42 / .16);
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-serif: 'Instrument Serif', Georgia, serif;
+  --gut-l: max(16px, env(safe-area-inset-left, 0px));
+  --gut-r: max(16px, env(safe-area-inset-right, 0px));
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f161c; --surface: #18222b; --ink: #e7ecef; --muted: #a1adb7; --rule: #2e3a45;
+    --box-line: #8795a1; --box-rule: #34424e; --wire: #8d9aa5; --wire-s: #c9d2d9; --other: #7f8c97;
+    --focal: #45bcc1; --focal-fg: #062a2c; --focal-tint: #12393b; --halo: #18222b;
+    --l1: #2b2611; --l1-a: #e6a957; --l2: #261b37; --l2-a: #c9a0f5;
+    --l3: #152437; --l3-a: #8cb2f6; --l4: #141e37; --l4-a: #aebdf0;
+    --shadow: rgb(0 0 0 / .5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f161c; --surface: #18222b; --ink: #e7ecef; --muted: #a1adb7; --rule: #2e3a45;
+  --box-line: #8795a1; --box-rule: #34424e; --wire: #8d9aa5; --wire-s: #c9d2d9; --other: #7f8c97;
+  --focal: #45bcc1; --focal-fg: #062a2c; --focal-tint: #12393b; --halo: #18222b;
+  --l1: #2b2611; --l1-a: #e6a957; --l2: #261b37; --l2-a: #c9a0f5;
+  --l3: #152437; --l3-a: #8cb2f6; --l4: #141e37; --l4-a: #aebdf0;
+  --shadow: rgb(0 0 0 / .5);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 14px; line-height: 1.45; }
+::selection { background: var(--focal); color: var(--focal-fg); }
+:focus-visible { outline: 2px solid var(--focal); outline-offset: 2px; }
+* { scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
+button { font: inherit; color: inherit; }
+a { color: var(--focal); text-underline-offset: 3px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+svg.ic { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.app { height: 100%; display: flex; flex-direction: column; }
+
+/* ---------- tool bar: one row ---------- */
+.bar { flex: none; display: flex; align-items: center; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--rule);
+  padding: calc(10px + env(safe-area-inset-top, 0px)) var(--gut-r) 10px var(--gut-l); position: relative; z-index: 6; }
+.id { min-width: 0; margin-right: auto; display: flex; align-items: baseline; gap: 14px; }
+h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-height: 1; margin: 0; letter-spacing: -.01em; white-space: nowrap; }
+#meta { margin: 0; color: var(--muted); font-size: 12px; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.find { position: relative; display: flex; gap: 6px; flex: 0 1 256px; min-width: 0; }
+.field { position: relative; flex: 1; min-width: 0; }
+.field svg { position: absolute; left: 9px; top: 50%; translate: 0 -50%; color: var(--muted); pointer-events: none; }
+#q { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 10px 7px 31px; caret-color: var(--focal); min-height: 36px; }
+#q::placeholder { color: var(--muted); }
+#q:hover { border-color: var(--muted); }
+#hits { position: absolute; top: calc(100% + 4px); left: 0; right: 0; margin: 0; padding: 4px; list-style: none; background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 10px 28px -12px var(--shadow); max-height: 340px; overflow: auto; z-index: 8; }
+#hits li { display: flex; align-items: baseline; gap: 8px; padding: 7px 8px; border-radius: 5px; cursor: pointer; }
+#hits li b { font-weight: 600; }
+#hits li small { margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hits li[aria-selected="true"] { background: var(--focal); color: var(--focal-fg); }
+#hits li[aria-selected="true"] small { color: inherit; }
+#hits .none { color: var(--muted); cursor: default; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 6px 12px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); cursor: pointer; white-space: nowrap; transition: border-color .15s ease-out, background-color .15s ease-out; }
+.btn:hover { border-color: var(--muted); }
+.btn:active { background: var(--bg); }
+.btn:disabled { opacity: .5; cursor: default; border-color: var(--rule); }
+.btn.icon { padding: 6px; width: 36px; }
+.btn[aria-expanded="true"] { border-color: var(--ink); background: var(--bg); }
+.btn .chev { width: 12px; height: 12px; color: var(--muted); transition: rotate .15s ease-out; }
+.btn[aria-expanded="true"] .chev { rotate: 180deg; }
+.badge { font: 600 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; background: var(--ink); color: var(--surface); border-radius: 9px; padding: 3px 6px; }
+.badge[hidden] { display: none; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; padding: 2px; background: var(--bg); }
+.seg button { border: 0; background: none; border-radius: 4px; padding: 5px 11px; min-height: 30px; cursor: pointer; color: var(--muted); font-weight: 500; }
+.seg button[aria-checked="true"], .seg button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px var(--shadow); }
+.gl { width: 26px; height: 10px; flex: none; fill: none; stroke: var(--wire); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.gl.s { stroke: var(--wire-s); stroke-width: 1.8; }
+.gl .dash { stroke-dasharray: 3 2.5; }
+.gl .tri { fill: var(--surface); }
+.gl.o { stroke: var(--other); stroke-dasharray: 2 2.5; }
+.gl .dia { fill: var(--wire-s); }
+#repo { align-self: center; }
+.short { display: none; }
+
+/* Menus open under their button. They are not modal. */
+.menu-w { position: relative; flex: none; }
+.pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 9; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px;
+  box-shadow: 0 16px 36px -18px var(--shadow); padding: 12px; }
+.pop[hidden] { display: none; }
+.pop h2 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 8px; }
+.kinds { display: grid; gap: 4px; border: 0; margin: 0; padding: 0; min-width: 220px; }
+.kinds label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; min-height: 32px; user-select: none; }
+.kinds input { accent-color: var(--focal); margin: 0; width: 15px; height: 15px; }
+#hl-menu { width: min(520px, calc(100vw - 32px)); }
+.hl-tabs { display: flex; margin-bottom: 10px; }
+.hl-tabs button { flex: 1; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; max-height: min(470px, 62vh); overflow: auto; overscroll-behavior: contain; margin: 0; padding: 0; list-style: none; }
+.opt { width: 100%; display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; min-height: 34px; border: 1px solid transparent; border-radius: 6px; background: none; cursor: pointer; text-align: left; }
+.opt:hover { border-color: var(--rule); background: var(--bg); }
+.opt span:first-child { font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.opt .c { margin-left: auto; color: var(--muted); font: 500 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+.opt[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.opt[aria-pressed="true"] .c { color: inherit; }
+.pop-foot { margin: 10px 2px 0; color: var(--muted); font-size: 12px; }
+
+/* ---------- stage and canvas ---------- */
+.stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+#cv.drag { cursor: grabbing; }
+#vp { will-change: transform; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+
+/* Bands and frames. Each band sets its tint and accent. */
+.L1 { --lt: var(--l1); --la: var(--l1-a); }
+.L2 { --lt: var(--l2); --la: var(--l2-a); }
+.L3 { --lt: var(--l3); --la: var(--l3-a); }
+.L4 { --lt: var(--l4); --la: var(--l4-a); }
+.band-r { fill: var(--lt); stroke: color-mix(in srgb, var(--la) 40%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fr-g { fill: color-mix(in srgb, var(--surface) 22%, transparent); stroke: color-mix(in srgb, var(--la) 55%, transparent); stroke-width: 1; stroke-dasharray: 7 4; vector-effect: non-scaling-stroke; }
+.fr-v { fill: none; stroke: color-mix(in srgb, var(--ink) 30%, transparent); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; pointer-events: all; transition: opacity .25s ease-out; }
+/* A frame zooms in on click while no class is chosen. */
+#cv:not(.has-sel) .fr-g, #cv:not(.has-sel) .fr-v, .fold { cursor: zoom-in; }
+#cv.lod0 .fr-v { opacity: .45; }
+.ttl text { font-family: var(--font-mono); font-weight: 600; }
+.ttl rect { fill: var(--lt); }
+.ttl-g text { fill: var(--la); font-size: 10px; letter-spacing: .08em; }
+.ttl-v text { fill: var(--muted); font-size: 9px; font-weight: 500; letter-spacing: .08em; text-transform: none; }
+.ttl { transition: opacity .25s ease-out, visibility 0s; }
+.ttl.off { display: none; }
+.fold { outline: none; }
+.fold:focus-visible .ttl rect, .fold:focus-visible .zl-p { stroke: var(--focal); stroke-width: 2; vector-effect: non-scaling-stroke; }
+
+/* Zone labels of the far level: the folder name and what it holds. */
+.zl { transition: opacity .25s ease-out, visibility 0s; }
+.zl.off { display: none; }
+.zl-p { fill: color-mix(in srgb, var(--lt) 92%, transparent); stroke: color-mix(in srgb, var(--la) 32%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.zl-n { font: 600 15px var(--font-sans); fill: var(--la); }
+.zl-c { font: 12.5px var(--font-sans); fill: var(--muted); font-variant-numeric: tabular-nums; }
+.zl.dim { opacity: .4; }
+#cv:not(.lod0) .zl { opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s; }
+#cv.lod0 .ttl { opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s; }
+
+/* Class boxes, in the style of the class views. */
+.box { cursor: pointer; transition: opacity .2s ease-out; outline: none; }
+.bx { fill: var(--surface); stroke: var(--box-line); stroke-width: 1; vector-effect: non-scaling-stroke; transition: fill .25s ease-out, stroke .25s ease-out; }
+.planned .bx { stroke-dasharray: 5 3; }
+.rule { stroke: var(--box-rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tp { fill: var(--surface); stroke: var(--box-line); stroke-dasharray: 3 2; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.t-tp { font: 8px var(--font-mono); fill: var(--muted); }
+.t-st { font: 8px var(--font-mono); fill: var(--muted); letter-spacing: .08em; text-anchor: middle; }
+.t-nm { font: 600 12px var(--font-sans); fill: var(--ink); text-anchor: middle; }
+.t-nm, .t-st { transform-box: fill-box; transform-origin: center; }
+.abs .t-nm { font-style: italic; }
+.t-rq { font: 8px var(--font-mono); fill: var(--muted); letter-spacing: .08em; text-anchor: middle; }
+.t-m { font: 9px var(--font-mono); fill: var(--ink); white-space: pre; }
+.t-m.u { text-decoration: underline; }
+.t-m.i { font-style: italic; }
+.ring { fill: none; stroke: var(--focal); stroke-width: 2.5; vector-effect: non-scaling-stroke; display: none; }
+.box:focus-visible .ring { display: block; }
+.box:hover .bx { stroke: var(--focal); }
+.box.sel .bx { fill: var(--focal-tint); stroke: var(--focal); stroke-width: 1.6; }
+.tab rect { stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tab text { font: 600 8px var(--font-mono); letter-spacing: .08em; text-anchor: middle; }
+.tab.dpt rect { fill: var(--ink); stroke: var(--ink); }
+.tab.dpt text { fill: var(--surface); }
+.tab.dep rect { fill: var(--surface); stroke: var(--focal); }
+.tab.dep text { fill: var(--focal); }
+.tab.both rect { fill: var(--focal); stroke: var(--focal); }
+.tab.both text { fill: var(--focal-fg); }
+
+/* Semantic zoom. Text fades in as the reader zooms. A level is one class on the canvas. */
+.box .tx, .box .tp, .box .t-tp, .box .mem { transition: opacity .25s ease-out, visibility 0s; }
+#cv.lod0 .box .tx, #cv.lod0 .box .tp, #cv.lod0 .box .t-tp, #cv.lod0 .box .mem {
+  opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s; }
+/* Middle: members show as a quiet texture. It tells how much each class holds, and the text sharpens on zoom. */
+#cv.lod1 .box .mem { opacity: .4; }
+/* Middle: the template box keeps its shape, and its text waits for the near level, where it reads. */
+#cv.lod1 .box .t-tp { opacity: 0; visibility: hidden; }
+/* Far: a box is a quiet block in the tint of its layer. */
+#cv.lod0 .bx { fill: color-mix(in srgb, var(--la) 16%, var(--surface)); stroke: color-mix(in srgb, var(--la) 42%, var(--surface)); }
+#cv.lod0 .box.sel .bx { fill: var(--focal); stroke: var(--focal); }
+/* Middle: names and stereotypes grow up to their cap, so they stay readable. */
+#cv.lod1 .t-nm { scale: min(var(--nb, 1), var(--c, 1)); }
+#cv.lod1 .t-st { scale: min(var(--sb, 1), var(--cs, 1)); }
+/* A stereotype line that its box keeps under 6px waits for the near level. */
+#cv.lod1 .t-st.tiny { visibility: hidden; }
+
+/* Lines. Structure is thicker than use. */
+.e { transition: opacity .25s ease-out, visibility 0s; }
+.ln { fill: none; stroke: var(--wire); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.hd { fill: none; stroke: var(--wire); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.e.s .ln, .e.s .hd { stroke: var(--wire-s); stroke-width: 1.7; }
+.e.s .hd { fill: var(--surface); stroke-width: 1.3; }
+.e.impl .ln { stroke-dasharray: 6 4; }
+.e.o .ln { stroke: var(--other); stroke-dasharray: 2 3; }
+.e.o .hd { stroke: var(--other); }
+/* A composition has a filled diamond at the root of the aggregate and no arrowhead. */
+.e.comp .hd { fill: var(--wire-s); }
+.e.agg .hd { fill: var(--surface); }
+/* Far: only the structure lines stay, thin. Attribute lines come back at the middle level. */
+#cv.lod0 .e.a:not(.on) { opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s; }
+#cv.lod0 .e.s .ln { stroke-width: 1.1; opacity: .55; }
+#cv.lod0 .e.s .hd { stroke-width: 1; opacity: .55; }
+#cv.lod0 .e.impl .ln { stroke-dasharray: 2 3; }
+/* A model with many structure lines keeps them quieter, so the far map stays calm and one line can be followed in the middle. */
+#cv.lod0.dense .e.s .ln, #cv.lod0.dense .e.s .hd { opacity: .34; }
+#cv.lod1.dense .e.s .ln { stroke-width: 1.2; }
+#others.many .e { opacity: .55; }
+#cv.hide-s .e.s, #cv.hide-a .e.a, #cv.hide-o #others { display: none; }
+.lb rect { fill: var(--halo); stroke: var(--box-rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.lb text { font: 9px var(--font-mono); fill: var(--ink); }
+.lb.o text { fill: var(--muted); }
+#labels { transition: opacity .25s ease-out, visibility 0s; }
+#cv:not(.lod2) #labels { opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s; }
+
+/* A choice fades everything that is not the chosen box, its lines and its neighbors. */
+#cv.has-sel .box:not(.on) { opacity: .2; }
+#cv.has-sel .e:not(.on) { opacity: .07; }
+#cv.has-sel .e.on .ln, #cv.has-sel .e.on .hd { stroke: var(--ink); opacity: 1; }
+#cv.has-sel .e.o.on .ln, #cv.has-sel .e.o.on .hd { stroke: var(--other); }
+#cv.has-sel .e.on.s .hd { fill: var(--surface); }
+#cv.has-sel .e.on.comp .hd { fill: var(--ink); }
+#cv.hov:not(.has-sel) .box:not(.hv) { opacity: .45; }
+#cv.hov:not(.has-sel) .e:not(.hv) { opacity: .22; }
+#cv.hov:not(.has-sel) .e.hv .ln, #cv.hov:not(.has-sel) .e.hv .hd { stroke: var(--focal); }
+#cv.hov:not(.has-sel) .e.hv.comp .hd { fill: var(--focal); }
+
+/* «Highlight» lights a set of types: a thick outline, and the rest fades.
+   With a chosen class, the choice shows its relations and the outline still marks the set. */
+#cv.has-hl .box.lit .bx { stroke: var(--ink); stroke-width: 2.4; }
+#cv.has-hl.lod0 .box.lit .bx { fill: color-mix(in srgb, var(--la) 62%, var(--surface)); stroke: var(--ink); }
+#cv.has-hl:not(.has-sel) .box:not(.lit) { opacity: .16; }
+#cv.has-hl:not(.has-sel) .e:not(.lit) { opacity: .06; }
+#cv.has-hl.has-sel .box.lit:not(.on) { opacity: .5; }
+#cv.has-hl.has-sel .box:not(.lit):not(.on) { opacity: .12; }
+#cv.has-hl .box.sel .bx { stroke: var(--focal); }
+.hl-chip { position: absolute; top: 12px; left: 50%; translate: -50% 0; z-index: 4; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 32px);
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 8px 22px -14px var(--shadow); padding: 4px 4px 4px 12px; font-size: 13px; }
+.hl-chip[hidden] { display: none; }
+.hl-chip b { font-family: var(--font-mono); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.hl-chip span { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hl-chip .btn { min-height: 30px; padding: 4px 8px; border-color: transparent; }
+.hl-chip .btn:hover { border-color: var(--rule); }
+.has-sheet .hl-chip { left: calc((100% - min(400px, 42vw)) / 2); }
+
+/* Band labels stay on screen while their band is in view, at every zoom. */
+.tags { position: absolute; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
+.tag { position: absolute; left: 0; top: 0; font: 600 10.5px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--la);
+  background: color-mix(in srgb, var(--lt) 88%, transparent); border: 1px solid color-mix(in srgb, var(--la) 35%, transparent); border-radius: 5px; padding: 4px 8px; white-space: nowrap; will-change: transform; }
+.tag[hidden] { display: none; }
+
+/* ---------- floating controls ---------- */
+.dock { position: absolute; left: calc(var(--gut-l) - 4px); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; z-index: 4; pointer-events: none; }
+.dock > * { pointer-events: auto; }
+.zoom { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 4px; box-shadow: 0 6px 18px -10px var(--shadow); }
+.zoom .btn { border-color: transparent; min-height: 34px; }
+.zoom .btn:hover { border-color: var(--rule); }
+.legend { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 6px 18px -10px var(--shadow); max-width: min(380px, calc(100vw - 32px)); }
+.legend summary { list-style: none; cursor: pointer; padding: 7px 12px; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.legend summary::-webkit-details-marker { display: none; }
+.legend summary svg { transition: rotate .15s ease-out; }
+.legend[open] summary svg { rotate: 180deg; }
+.legend ul { list-style: none; margin: 0; padding: 2px 12px 12px; display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); max-height: min(60vh, 520px); overflow: auto; }
+.legend li { display: flex; align-items: center; gap: 9px; }
+.legend li > svg { width: 30px; height: 14px; flex: none; }
+.legend li.sep { border-top: 1px solid var(--rule); padding-top: 8px; margin-top: 2px; }
+.legend .sw-box { fill: var(--surface); stroke: var(--box-line); }
+.legend .sw-box.dash { stroke-dasharray: 3 2; }
+.legend .sw-lit { fill: var(--surface); stroke: var(--ink); stroke-width: 2.4; }
+.legend .sw-zone { fill: var(--l2); stroke: var(--l2-a); stroke-dasharray: 3 2; }
+.legend .sw-block { fill: color-mix(in srgb, var(--l2-a) 16%, var(--surface)); stroke: color-mix(in srgb, var(--l2-a) 42%, var(--surface)); }
+.legend .sw-sel { fill: var(--focal-tint); stroke: var(--focal); }
+.legend .sw-u { font: 9px var(--font-mono); fill: var(--ink); text-decoration: underline; }
+.legend .sw-tab-dpt { fill: var(--ink); }
+.legend .sw-tab-dep { fill: var(--surface); stroke: var(--focal); }
+.legend .sw-i { font: italic 600 10px var(--font-sans); fill: var(--ink); }
+
+/* ---------- side panel and bottom sheet ---------- */
+#panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(400px, 42vw); background: var(--surface); border-left: 1px solid var(--rule);
+  box-shadow: -14px 0 32px -26px var(--shadow); display: flex; flex-direction: column; z-index: 5; padding-right: env(safe-area-inset-right, 0px); }
+#panel[hidden] { display: none; }
+.p-head { display: flex; gap: 12px; align-items: flex-start; padding: 16px 16px 12px 20px; border-bottom: 1px solid var(--rule); }
+.p-head > div { min-width: 0; flex: 1; }
+.p-st { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); letter-spacing: .04em; margin: 0 0 2px; }
+#p-name { font-family: var(--font-sans); font-weight: 600; font-size: 1.3rem; line-height: 1.2; margin: 0; overflow-wrap: anywhere; }
+#p-name.abs { font-style: italic; }
+.p-where { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.chip-l { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
+.chip-l i { width: 10px; height: 10px; border-radius: 2px; background: var(--lt); border: 1px solid var(--la); }
+.p-body { overflow: auto; padding: 4px 20px 24px; flex: 1; overscroll-behavior: contain; }
+.p-body h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 0 6px; display: flex; gap: 6px; align-items: baseline; }
+.p-body h3 .n { font-variant-numeric: tabular-nums; font-weight: 500; }
+.src { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; margin-top: 14px; }
+.uml { font-family: var(--font-mono); font-size: 12px; line-height: 1.55; margin: 0; padding: 0; list-style: none; }
+.uml li { padding-left: 2.2ch; text-indent: -2.2ch; overflow-wrap: anywhere; }
+.uml .u { text-decoration: underline; text-underline-offset: 2px; }
+.uml .i { font-style: italic; }
+.uml .pl { color: var(--muted); }
+.rels { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.rel { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; padding: 6px 8px; min-height: 36px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.rel:hover { border-color: var(--focal); }
+.rel b { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.rel small { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-align: right; overflow-wrap: anywhere; max-width: 50%; }
+.rel .gl { width: 22px; }
+.p-note { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; }
+.views { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font: 12.5px var(--font-mono); }
+.views a { display: inline-flex; align-items: center; min-height: 28px; overflow-wrap: anywhere; }
+.grab { display: none; }
+
+/* Below 1600px the search button shows its arrow only, so the facts line keeps its room. */
+@media (max-width: 1599px) { #go .long { display: none; } #go .short { display: inline; } #go { padding: 6px; min-width: 36px; } }
+@media (max-width: 1100px) { #meta { display: none; } }
+@media (max-width: 720px) {
+  /* Two rows on a phone. The title and the density come first.
+     Then the search takes the free width, beside the repository switch and the menus.
+     A full-width spacer breaks the row, so each row sizes its own items. */
+  .bar { flex-wrap: wrap; column-gap: 8px; row-gap: 0; }
+  .bar::after { content: ''; flex: 0 0 100%; height: 8px; order: 2; }
+  .id { display: contents; }
+  h1 { order: 1; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #dens { order: 1; flex: none; }
+  .find { order: 3; flex: 1 1 0; }
+  #repo { order: 4; flex: none; }
+  .menu-w { order: 5; }
+  /* Enter and a tap on a result go to the class, so the phone needs no extra button. */
+  #go { display: none; }
+  .menu-w { position: static; }
+  .pop { left: var(--gut-l); right: var(--gut-r); top: calc(100% + 4px); width: auto; }
+  #hl-menu { width: auto; }
+  .opts { grid-template-columns: 1fr; }
+  h1 { font-size: 1.3rem; }
+  .seg button { padding: 5px 9px; }
+  .long { display: none; }
+  .short { display: inline; }
+  .menu-w .btn .chev { display: none; }
+  .menu-w .btn { padding: 6px; min-width: 44px; }
+  #panel { top: auto; left: 0; width: auto; max-height: 56%; border-left: 0; border-top: 1px solid var(--rule); border-radius: 14px 14px 0 0;
+    box-shadow: 0 -14px 32px -22px var(--shadow); padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+  .grab { display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--rule); margin: 8px auto 0; }
+  .p-head { padding: 8px 16px 10px; }
+  .p-body { padding: 0 16px 20px; }
+  .has-sheet .dock { display: none; }
+  .has-sheet .hl-chip { left: 50%; }
+  .hl-chip { top: 8px; }
+}
+@media (pointer: coarse) { .rel, .btn, .opt { min-height: 44px; } .btn.icon { width: 44px; } .seg button { min-height: 38px; } .kinds label { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

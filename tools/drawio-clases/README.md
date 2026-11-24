@@ -99,7 +99,7 @@ For a diagram at `docs/architecture/classes.drawio`, that is the same file that 
 `gen.mjs` prints one `warning:` line on stderr for each page, group or type of the layout file that the model does not have, and exits 0.
 `pin.mjs` prints one `warning:` line on stderr for each box that sits outside its group, and exits 0.
 `merge.mjs` lists the code types with no operation, and their stereotypes, under «Types with no operation» in `planned-report-<repo>.md`.
-The tools use Node built-ins only.
+The tools use Node built-ins only. The page builder in `page/` is the one exception (see «Page»).
 `gen.mjs` writes no timestamp and no random id, so the same model always gives the same bytes.
 
 ## Pages
@@ -162,7 +162,7 @@ The tools use Node built-ins only.
 | use | thin (1 px) solid line in a light ink, open arrowhead at the class it needs, label from the model in 10 px; layer `use lines` |
 | implements | dashed line, hollow triangle, 2 px |
 | extends | solid line, hollow triangle, 2 px |
-| aggregation, composition | hollow or filled diamond at the holder, attribute and multiplicity near the far end, 2 px |
+| aggregation, composition | hollow or filled diamond at the holder, attribute and multiplicity near the far end, 2 px; a Decorator aggregation carries the role and the multiplicity instead, for example `decorate 1` |
 | planned line | the style and width of its kind in grey, and the word `planned` in the label |
 | group | thin border in the layer color, label at the top left |
 | view frame | rounded panel in a light tint of the layer, title `view <name>` |
@@ -217,7 +217,9 @@ node check.mjs /tmp/mini.drawio fixtures/mini.model.json         # exit 0
 
 ## Tests
 
-`node --test` in `tools/drawio-clases/` runs the tests of `test/`. They use Node built-ins only.
+`node --test 'test/*.test.mjs'` in `tools/drawio-clases/` runs the tests of `test/`. They use Node built-ins only and need no install step.
+Give the pattern: a plain `node --test` there also finds the tests of `page/`, and these need `npm ci` in `page/` first.
+`node --test` in `tools/drawio-clases/page/` runs the tests of the page builder, after `npm ci` there.
 The workflow `.github/workflows/drawio-clases.yml` runs them on each pull request and push that touches the tool.
 
 ## Render
@@ -228,3 +230,70 @@ It draws each line through its fixed exit, its waypoints and its fixed entry, wi
 A line without waypoints gets a simple elbow, so draw.io can route that line on another path.
 For each page it reports the labels larger than their box, the line labels on a box, the overlapping boxes and the lines that cross a box.
 `RENDER_SCALE` sets the PNG scale. The default keeps each side under 12000 pixels.
+
+## Page
+
+The page is a clickable class diagram for the browser. It shows one repository at a time, and a switch in the tool bar loads the other one.
+It reads only the model of `MODEL.md`, the model that `gen.mjs` draws. It never reads source code, so it never contradicts `classes.drawio`.
+It has the four layer bands with layer 4 at the top, the folder frames, the view frames inside a large folder, the planned zones, two box densities and three zoom levels.
+A click on a class chooses it: its lines and its neighbors stay, each neighbor gets a `dependent` or `dependency` tab, and a side panel lists its members, its views and its relations.
+The search finds a class by name or stereotype, the highlight menu lights a stereotype, a view or a layer, and a link such as `#app-GameEngine` opens one class.
+Each class with a file links to its line on GitHub, at the commit of the model.
+
+The builder lives in `page/`. It has its own `package.json`, so the scripts above keep zero dependencies.
+Its one dependency is `elkjs`: ELK places the boxes inside each frame with a layered layout.
+The builder packs the frames, the groups and the bands itself, and routes the structure and attribute lines on its own grid.
+
+### Build
+
+```sh
+cd tools/drawio-clases/page
+npm ci --ignore-scripts
+node build.mjs <out>/hexablock-api.model.json <out>/hexablock-app.model.json --out <site>
+```
+
+The build writes a static site into `<site>`:
+
+| File | Content |
+|---|---|
+| `index.html` | the page, as a full HTML document |
+| `<repo>.model.json` | the model, byte for byte as `merge.mjs` wrote it |
+| `<repo>.positions.json` | the box, frame, band and line positions of both densities |
+
+The page loads the two data files of a repository with a relative `fetch`.
+The repository switch has one button per model, in the order of the arguments, and the first model opens by default.
+The link key of a repository is its name without the `hexablock-` prefix, for example `app` in `#app-GameEngine`.
+`--artifact` writes the page as `diagrama-clases-hexablock.html` instead: the same page as a fragment with no doctype, `html`, `head` or `body` tag, for a claude.ai artifact. The data files stay the same.
+A wrong argument or a model that does not have the shape of `MODEL.md` gives one `error:` line, writes no file and ends with exit code 1.
+The build needs no browser, and the same models always give the same bytes.
+
+### View the site
+
+`fetch` does not read `file://` addresses, so serve the site over HTTP:
+
+```sh
+cd <site>
+python3 -m http.server 8000 --bind 127.0.0.1
+```
+
+Then open `http://127.0.0.1:8000/`.
+
+### Glyph table
+
+The width of a box depends on the width of the class name in IBM Plex Sans 600 at 12 px.
+`page/glyphs.json` holds the width of each printable ASCII glyph and the kerning of each glyph pair, upright and italic, as Chromium measures them.
+The build adds these widths, so it gives the same box widths as the browser.
+A character outside the table counts as the widest glyph.
+
+Run `node glyphs.mjs` in `page/` when the page changes the font, the weight or the size of the class names, or when a name uses a character outside printable ASCII.
+The script needs a local Chromium (`CHROME_BIN`, the Playwright browsers or the `PATH`) and network access to Google Fonts.
+Commit the new `glyphs.json` with the change that needs it.
+
+### Check the geometry
+
+```sh
+node geom.mjs <site>/hexablock-app.model.json <site>/hexablock-app.positions.json
+```
+
+`geom.mjs` prints, for each density, the count of boxes, frames and lines, the boxes that overlap, the lines that cross a box that they do not join, and the line ends off their box.
+The tests of `page/test/` run the same checks on the fixture models.
