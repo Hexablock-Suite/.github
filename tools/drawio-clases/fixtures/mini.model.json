@@ -311,8 +311,7 @@
       "status": "code",
       "sprint": null,
       "stereotypes": [
-        "interface",
-        "dataType"
+        "interface"
       ],
       "layer": 2,
       "part": "core",
@@ -518,7 +517,9 @@
       "abstract": false,
       "status": "code",
       "sprint": null,
-      "stereotypes": [],
+      "stereotypes": [
+        "enumeration"
+      ],
       "layer": 1,
       "part": "core",
       "file": "src/domain/engine/outcome.ts",
@@ -827,7 +828,7 @@
       "from": "LoggingAspect",
       "to": "UseCase",
       "kind": "aggregation",
-      "label": "inner 1",
+      "label": "decorate 1",
       "pattern": "Decorator",
       "status": "code",
       "views": []

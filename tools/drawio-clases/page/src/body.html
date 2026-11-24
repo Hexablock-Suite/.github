@@ -1,0 +1,99 @@
+<div class="app" id="app">
+  <header class="bar">
+    <div class="id">
+      <h1>Class diagram</h1>
+      <div class="seg" id="repo" role="radiogroup" aria-label="Repository">
+<!-- repos -->
+      </div>
+      <p id="meta"></p>
+    </div>
+    <div class="find" role="search">
+      <div class="field">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+        <label for="q" class="sr">Search a class by name or stereotype</label>
+        <input id="q" type="search" placeholder="Search class or stereotype" autocomplete="off" spellcheck="false"
+          role="combobox" aria-expanded="false" aria-controls="hits" aria-autocomplete="list">
+        <ul id="hits" role="listbox" aria-label="Results" hidden></ul>
+      </div>
+      <button class="btn" id="go" type="button" disabled aria-label="Go to the class"><span class="long">Go to the class</span><svg class="ic short" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>
+    </div>
+    <div class="menu-w hl">
+      <button class="btn" id="hl-btn" type="button" aria-expanded="false" aria-controls="hl-menu" aria-label="Highlight a set of types">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1" stroke-dasharray="2 1.6"/><rect x="2" y="9" width="5" height="5" rx="1" stroke-dasharray="2 1.6"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+        <span class="long">Highlight</span><span class="badge" id="hl-badge" hidden></span>
+        <svg class="ic chev" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+      </button>
+      <div class="pop" id="hl-menu" role="group" aria-label="Highlight a set of types" hidden>
+        <div class="seg hl-tabs" role="tablist" aria-label="Highlight by">
+          <button type="button" role="tab" aria-selected="true" data-tab="st">Stereotype</button>
+          <button type="button" role="tab" aria-selected="false" data-tab="v">View</button>
+          <button type="button" role="tab" aria-selected="false" data-tab="l">Layer</button>
+          <button type="button" role="tab" aria-selected="false" data-tab="p" id="hl-tab-p" hidden>Pattern</button>
+        </div>
+        <ul class="opts" id="hl-opts" role="tabpanel"></ul>
+        <p class="pop-foot">Choose a set to highlight it. Esc or «Clear» ends it.</p>
+      </div>
+    </div>
+    <div class="menu-w ln">
+      <button class="btn" id="ln-btn" type="button" aria-expanded="false" aria-controls="ln-menu" aria-label="Visible lines">
+        <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5h9M8.5 2.5 11 5l-2.5 2.5M2 11h12"/></svg>
+        <span class="long">Lines</span>
+        <svg class="ic chev" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+      </button>
+      <div class="pop" id="ln-menu" hidden>
+        <fieldset class="kinds">
+          <legend class="sr">Visible lines</legend>
+          <label><input type="checkbox" data-k="s" checked>
+            <svg class="gl s" viewBox="0 0 26 10" aria-hidden="true"><path d="M1 5h16"/><path class="tri" d="M17 1.5 24.5 5 17 8.5Z"/></svg>Structure</label>
+          <label><input type="checkbox" data-k="a" checked>
+            <svg class="gl" viewBox="0 0 26 10" aria-hidden="true"><path d="M1 5h23M19 1.5 24 5l-5 3.5"/></svg>Attributes</label>
+          <label><input type="checkbox" data-k="o" checked>
+            <svg class="gl o" viewBox="0 0 26 10" aria-hidden="true"><path d="M1 8C8 1 16 1 24 5"/></svg>Other uses of the chosen class</label>
+        </fieldset>
+      </div>
+    </div>
+    <div class="seg" id="dens" role="radiogroup" aria-label="Box density">
+      <button type="button" role="radio" aria-checked="true" data-d="compact">Compact</button>
+      <button type="button" role="radio" aria-checked="false" data-d="full">Full</button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <svg id="cv" class="lod0" tabindex="-1" role="application" aria-label="Class diagram. Drag to move. Use the wheel or the buttons to zoom. Click a folder to zoom to it.">
+      <g id="vp">
+        <g id="bands"></g><g id="frames"></g><g id="lines"></g><g id="sums" aria-hidden="true"></g><g id="others"></g><g id="boxes"></g><g id="labels"></g><g id="titles"></g>
+      </g>
+    </svg>
+    <div class="tags" id="tags" aria-hidden="true"></div>
+    <div class="hl-chip" id="hl-chip" hidden>
+      <b id="hl-what"></b><span id="hl-n"></span>
+      <button class="btn" id="hl-clear" type="button"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>Clear</button>
+    </div>
+    <p class="loading" id="loading">Loading the model.</p>
+    <div class="dock">
+      <details class="legend" id="legend">
+        <summary>Legend <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg></summary>
+        <!-- The script fills the legend from the loaded model, so it lists only what the model has. -->
+        <ul id="legend-list"></ul>
+      </details>
+      <div class="zoom" role="group" aria-label="Zoom">
+        <button class="btn icon" id="zout" type="button" aria-label="Zoom out"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9"/></svg></button>
+        <button class="btn icon" id="zin" type="button" aria-label="Zoom in"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9M8 3.5v9"/></svg></button>
+        <button class="btn" id="fit" type="button"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>Fit</button>
+      </div>
+    </div>
+    <aside id="panel" aria-labelledby="p-name" hidden>
+      <div class="grab" aria-hidden="true"></div>
+      <div class="p-head">
+        <div>
+          <p class="p-st" id="p-st"></p>
+          <h2 id="p-name"></h2>
+          <p class="p-where" id="p-where"></p>
+        </div>
+        <button class="btn icon" id="p-close" type="button" aria-label="Clear the choice"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>
+      </div>
+      <div class="p-body" id="p-body"></div>
+    </aside>
+    <p class="sr" id="status" aria-live="polite"></p>
+  </main>
+</div>

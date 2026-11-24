@@ -19,6 +19,9 @@ import { extract } from './extract.mjs';
 import { parseViews } from './views.mjs';
 
 const DIAMONDS = new Set(['aggregation', 'composition']);
+// The role label of an aggregation, by pattern. It replaces the attribute name next to the line.
+// The multiplicity follows it, for example `decorate 1`. Any other pattern keeps its label.
+const ROLE_LABELS = { Decorator: 'decorate' };
 
 // Return the list of violations of the five invariants of MODEL.md.
 export function checkModel(model) {
@@ -364,6 +367,12 @@ export function merge(code, views, cfg) {
     return l.label ?? l.multiplicity;
   };
   const viewNames = (lines) => [...new Set(lines.map((l) => l.view))].sort(byText);
+  // An aggregation with a role label carries the role and the multiplicity, else the label stays.
+  const labelOf = (d, label, multiplicity) => {
+    const role = d?.kind === 'aggregation' ? ROLE_LABELS[d.pattern] : undefined;
+    if (!role) return label;
+    return multiplicity ? `${role} ${multiplicity}` : role;
+  };
 
   // A diamond needs one layer for both ends and a pattern from the config (MODEL.md invariant 2).
   const diamondFor = (p, lines, viaAttr) => {
@@ -398,12 +407,18 @@ export function merge(code, views, cfg) {
     let assoc = null;
     if (p.codeUse) {
       const d = diamondFor(p, p.viewAssoc, p.codeUse.viaAttr);
-      assoc = { from: p.from, to: p.to, kind: d?.kind ?? 'use', label: p.codeUse.label, pattern: d?.pattern ?? null, status: 'code', views: viewNames(p.viewAssoc) };
+      // The code gives the multiplicity of a pair that the code holds.
+      const label = labelOf(d, p.codeUse.label, p.codeUse.multiplicity);
+      assoc = { from: p.from, to: p.to, kind: d?.kind ?? 'use', label, pattern: d?.pattern ?? null, status: 'code', views: viewNames(p.viewAssoc) };
     } else if (p.viewAssoc.length) {
       const d = diamondFor(p, p.viewAssoc, true);
-      assoc = { from: p.from, to: p.to, kind: d?.kind ?? 'use', label: viewLabel(p.viewAssoc), pattern: d?.pattern ?? null, status: 'planned', views: viewNames(p.viewAssoc) };
+      // The view gives the multiplicity of a planned pair: its own text, or the last word of the label.
+      const multiplicity = p.viewAssoc.map((l) => l.multiplicity ?? l.label?.match(/\s(\d+|\*|\d+\.\.(?:\d+|\*))$/)?.[1]).find(Boolean);
+      const label = labelOf(d, viewLabel(p.viewAssoc), multiplicity);
+      assoc = { from: p.from, to: p.to, kind: d?.kind ?? 'use', label, pattern: d?.pattern ?? null, status: 'planned', views: viewNames(p.viewAssoc) };
     }
     // A pair with implements or extends keeps no use (MODEL.md invariant 3).
+    // An aggregation or a composition stays next to the heritage line.
     if (heritage && assoc && assoc.kind === 'use') {
       notes.heritageUses.push(`${p.from} -> ${p.to}: ${heritage.kind} hides the ${assoc.status} use "${assoc.label ?? ''}"`);
       assoc = null;
@@ -423,20 +438,24 @@ export function merge(code, views, cfg) {
     }
   }
   for (const t of types) if (t.kind === 'interface' && t.stereotypes.length === 0) t.stereotypes.push('interface');
+  // A union of literals is an enumeration (team decision, 2026-11-24).
+  // The model holds the word, so gen.mjs and the page print the same word.
+  for (const t of types) if (t.kind === 'union' && !t.stereotypes.includes('enumeration')) t.stereotypes.push('enumeration');
 
-  // A code class or interface with no operation only carries data, so it gets «dataType».
+  // A code class with no operation only carries data, so it gets «dataType».
   // The box then says why it has no operation (rule (i) of check.mjs).
-  // The config map stereotypeFor names another stereotype for one type, for example «module» for a Nest module.
+  // An interface never gets «dataType». Its «interface» already says why (team decision, 2026-11-24).
+  // The config map stereotypeFor names another stereotype for one class, for example «module» for a Nest module.
   const stereotypeFor = cfg.stereotypeFor ?? {};
   for (const t of types) {
-    if (t.status !== 'code' || !(t.kind === 'class' || t.kind === 'interface') || t.ops.length) continue;
+    if (t.status !== 'code' || t.kind !== 'class' || t.ops.length) continue;
     const mark = stereotypeFor[t.id] ?? stereotypeFor[t.name] ?? 'dataType';
     if (!t.stereotypes.includes(mark)) t.stereotypes.push(mark);
     notes.noOps.push({ type: t, mark });
   }
   for (const name of Object.keys(stereotypeFor)) {
     if (!notes.noOps.some(({ type }) => type.id === name || type.name === name)) {
-      notes.stereotypeIgnored.push(`${name}: no code class or interface with no operation has this name`);
+      notes.stereotypeIgnored.push(`${name}: no code class with no operation has this name`);
     }
   }
 
@@ -553,7 +572,7 @@ export function report(model, notes, unresolved) {
   L.push('| From | To | Kind | Label | Views |', '|---|---|---|---|---|');
   for (const e of plannedEdges) L.push(`| ${e.from} | ${e.to} | ${e.kind}${e.pattern ? ` (${e.pattern})` : ''} | ${mdCell(e.label ?? '')} | ${e.views.join(', ')} |`);
   L.push('', `## Types with no operation (${notes.noOps.length})`, '');
-  L.push('A code class or interface with no operation. It carries «dataType», or the stereotype that the `stereotypeFor` map of the config names.', '');
+  L.push('A code class with no operation. It carries «dataType», or the stereotype that the `stereotypeFor` map of the config names. An interface with no operation keeps «interface» alone, so this list leaves it out.', '');
   if (!notes.noOps.length) L.push('None.');
   else L.push('| Type | Kind | Layer | Part | Stereotype | File |', '|---|---|---|---|---|---|');
   for (const { type: t, mark } of notes.noOps) L.push(`| ${t.id} | ${t.kind} | ${t.layer} | ${t.part} | «${mark}» | ${t.file}:${t.line} |`);

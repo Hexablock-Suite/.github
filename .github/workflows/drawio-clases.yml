@@ -1,6 +1,8 @@
 name: drawio-clases
 
-# Runs the tests of the class diagram tool. The tool uses Node built-ins only, so no install step runs.
+# Runs the tests of the class diagram tool.
+# The generator scripts use Node built-ins only, so their job has no install step.
+# The page builder in page/ has its own package.json. Its job installs elkjs from the lock file first.
 on:
   pull_request:
     paths:
@@ -28,4 +30,27 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
+      # extract.mjs loads the TypeScript compiler from the repository that it reads.
+      # One test of merge() needs the compiler, and the tool has no package.json.
+      # This step puts TypeScript in the temporary folder of the runner, outside the tool.
+      - run: npm install --ignore-scripts --no-save --prefix "$RUNNER_TEMP/typescript" typescript@6.0.3
+      # The pattern keeps out the tests of page/, which need npm ci there.
+      - run: node --test 'test/*.test.mjs'
+        env:
+          NODE_PATH: ${{ runner.temp }}/typescript/node_modules
+
+  page:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/drawio-clases/page
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
       - run: node --test

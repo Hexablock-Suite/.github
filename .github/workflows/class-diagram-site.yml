@@ -1,0 +1,84 @@
+name: class-diagram-site
+
+# Publishes the class diagram page of the API and the app to GitHub Pages.
+# No product repository commits its model, so the build job computes both models from the product code.
+# A push to a product repository cannot start this workflow, so it also runs on a schedule.
+# Use «Run workflow» to publish at once after a product merge.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'tools/drawio-clases/**'
+      - '.github/workflows/class-diagram-site.yml'
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time. A deployment in progress finishes before the next one starts.
+concurrency:
+  group: class-diagram-site
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tool
+          persist-credentials: false
+      # The two product repositories are public, so these steps need no token of their own.
+      # merge.mjs names each model after the folder of its repository.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Hexablock-Suite/hexablock-api
+          path: hexablock-api
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Hexablock-Suite/hexablock-app
+          path: hexablock-app
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      # extract.mjs loads the TypeScript compiler from the repository that it reads.
+      # The product clones have no node_modules, so this step puts TypeScript in the temporary folder of the runner.
+      - run: npm install --ignore-scripts --no-save --prefix "$RUNNER_TEMP/typescript" typescript@6.0.3
+      # A violation in a product model stops the job here. The site then keeps its last good version.
+      - name: Compute both models
+        working-directory: tool/tools/drawio-clases
+        env:
+          NODE_PATH: ${{ runner.temp }}/typescript/node_modules
+        run: |
+          node merge.mjs "$GITHUB_WORKSPACE/hexablock-api" "$RUNNER_TEMP/models"
+          node merge.mjs "$GITHUB_WORKSPACE/hexablock-app" "$RUNNER_TEMP/models"
+      # The API model goes first: a bare type name in the address opens the first model.
+      - name: Build the page
+        working-directory: tool/tools/drawio-clases/page
+        run: |
+          npm ci --ignore-scripts
+          node build.mjs "$RUNNER_TEMP/models/hexablock-api.model.json" "$RUNNER_TEMP/models/hexablock-app.model.json" --out "$RUNNER_TEMP/site"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only this job can write to Pages. The identity token proves to Pages which workflow deploys.
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

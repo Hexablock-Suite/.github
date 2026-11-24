@@ -259,6 +259,31 @@ export function extract(repoArg) {
   };
   const ids = (hits) => [...new Set(hits.filter((h) => !h.isNew).map((h) => h.id))];
 
+  // An attribute whose type is a type parameter with a constraint uses the constraint.
+  // `inner: TInner` with `TInner extends IScoringPolicy` uses IScoringPolicy.
+  // The rule also reads `TInner[]`, `TInner | undefined` and `readonly TInner[]`.
+  // A type parameter inside a type argument, such as `Repo<TInner>`, gives no use of its constraint.
+  // A type parameter with no constraint names no model type.
+  const constraintRefs = (typeNode, seen = new Set()) => {
+    const out = [];
+    const visit = (n) => {
+      if (ts.isParenthesizedTypeNode(n) || ts.isTypeOperatorNode(n)) visit(n.type);
+      else if (ts.isArrayTypeNode(n)) visit(n.elementType);
+      else if (ts.isUnionTypeNode(n)) n.types.forEach(visit);
+      else if (ts.isTypeReferenceNode(n) && ts.isIdentifier(n.typeName)) {
+        const sym = checker.getSymbolAtLocation(n.typeName);
+        const decl = sym && sym.flags & ts.SymbolFlags.TypeParameter ? sym.declarations?.find(ts.isTypeParameterDeclaration) : null;
+        if (decl?.constraint && !seen.has(decl)) {
+          seen.add(decl);
+          out.push(...ids(refsIn(decl.constraint)), ...constraintRefs(decl.constraint, seen));
+        }
+      }
+    };
+    if (typeNode) visit(typeNode);
+    return out;
+  };
+  const attrRefs = (typeNode) => [...new Set([...ids(refsIn(typeNode)), ...constraintRefs(typeNode)])];
+
   // Read one attribute: a property, a parameter property or an accessor.
   const attrOf = (t, m, typeNode, extra = {}) => {
     const optional = !!m.questionToken;
@@ -273,7 +298,7 @@ export function extract(repoArg) {
       ...extra,
     };
     t.attrs.push(attr);
-    const refs = typeNode ? ids(refsIn(typeNode)) : [...refsOfType(checker.getTypeAtLocation(m))];
+    const refs = typeNode ? attrRefs(typeNode) : [...refsOfType(checker.getTypeAtLocation(m))];
     useAttr(t.id, refs, name, multiplicity(m, typeNode, optional));
   };
 
@@ -372,7 +397,7 @@ export function extract(repoArg) {
           const name = memberName(m);
           const typeNode = m.type ?? null;
           t.attrs.push({ vis: visibility(m), name, type: returnText(m), static: hasMod(m, ts.ModifierFlags.Static), readonly: !setters.has(name), optional: false });
-          const refs = typeNode ? ids(refsIn(typeNode)) : [...refsOfType(checker.getReturnTypeOfSignature(checker.getSignatureFromDeclaration(m)))];
+          const refs = typeNode ? attrRefs(typeNode) : [...refsOfType(checker.getReturnTypeOfSignature(checker.getSignatureFromDeclaration(m)))];
           useAttr(id, refs, name, multiplicity(m, typeNode, false));
           useIn(id, refsIn(m.body), `${name}()`);
         } else if (ts.isSetAccessorDeclaration(m)) {
@@ -407,6 +432,8 @@ export function extract(repoArg) {
   // Turn the pairs into lines. A pair gives its heritage line and its use line.
   // A Decorator implements the interface that it also holds, so both lines can exist.
   // `merge.mjs` drops the use next to the heritage unless a view turns it into a diamond.
+  // An attribute use also gives its multiplicity when all its attributes share one, else null.
+  // `merge.mjs` puts it after the role label of a diamond, for example `decorate 1`.
   const capped = (list) => (list.length > LABEL_CAP ? `${list.slice(0, LABEL_CAP).join(', ')}, …` : list.join(', '));
   const edges = [];
   for (const p of pairs.values()) {
@@ -416,7 +443,8 @@ export function extract(repoArg) {
     if (p.attrs.size) label = capped([...p.attrs].map(([n, m]) => `${n} ${m}`));
     else if (p.create) label = '«create»';
     else label = p.ops.some((o) => o) ? capped(p.ops.filter((o) => o)) : null;
-    edges.push({ from: p.from, to: p.to, kind: 'use', label, viaAttr: p.attrs.size > 0 });
+    const mults = new Set(p.attrs.values());
+    edges.push({ from: p.from, to: p.to, kind: 'use', label, viaAttr: p.attrs.size > 0, multiplicity: mults.size === 1 ? [...mults][0] : null });
   }
 
   const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);

@@ -98,8 +98,8 @@ node render.mjs <out.drawio> <png-dir>
 For a diagram at `docs/architecture/classes.drawio`, that is the same file that `merge.mjs` reads.
 `gen.mjs` prints one `warning:` line on stderr for each page, group or type of the layout file that the model does not have, and exits 0.
 `pin.mjs` prints one `warning:` line on stderr for each box that sits outside its group, and exits 0.
-`merge.mjs` lists the code types with no operation, and their stereotypes, under «Types with no operation» in `planned-report-<repo>.md`.
-The tools use Node built-ins only.
+`merge.mjs` lists the code classes with no operation, and their stereotypes, under «Types with no operation» in `planned-report-<repo>.md`. An interface with no operation keeps «interface» alone, so the list leaves it out.
+The tools use Node built-ins only. The page builder in `page/` is the one exception (see «Page»).
 `gen.mjs` writes no timestamp and no random id, so the same model always gives the same bytes.
 
 ## Pages
@@ -153,16 +153,18 @@ The tools use Node built-ins only.
 |---|---|
 | class box | stereotypes, name (italic when abstract), attributes `+ name: type`, operations `+ name(p: T): R` (italic when abstract) |
 | type parameters | a small dashed box at the top right of the class, with bounds and defaults |
-| union, enum | `«union»` or `«enumeration»` and one literal per line |
+| union, enum | `«enumeration»` and one literal per line; a union takes the word from the model (`merge.mjs`) |
+| type alias | no kind word: the box shows its stereotypes from the model, if any, its name and `= <aliased type>` or its attributes |
 | planned type | dashed border, `«planned»` and its `«Sprint N»` |
 | planned member | its `«Sprint N»`, or `«planned»`, before the member |
 | planned class with no operation | one italic line, `members not designed yet`, in the operation compartment; the tool does not invent members |
 | code class with no operation | the stereotype `«dataType»`: a type that only carries data; the `stereotypeFor` map of the config can name another one, such as `«module»` for a Nest module |
+| code interface with no operation | `«interface»` alone, never `«dataType»` on top |
 | long member | wraps into parts; each next part starts with an indent |
 | use | thin (1 px) solid line in a light ink, open arrowhead at the class it needs, label from the model in 10 px; layer `use lines` |
 | implements | dashed line, hollow triangle, 2 px |
 | extends | solid line, hollow triangle, 2 px |
-| aggregation, composition | hollow or filled diamond at the holder, attribute and multiplicity near the far end, 2 px |
+| aggregation, composition | hollow or filled diamond at the holder, attribute and multiplicity near the far end, 2 px; a Decorator aggregation carries the role and the multiplicity instead, for example `decorate 1` |
 | planned line | the style and width of its kind in grey, and the word `planned` in the label |
 | group | thin border in the layer color, label at the top left |
 | view frame | rounded panel in a light tint of the layer, title `view <name>` |
@@ -203,7 +205,7 @@ The id of each cell comes from the page id and the type ids or the edge key.
 | (f) | The legend of each page lists exactly the line kinds and box kinds of that page (rule 13). |
 | (g) | The XML parses. |
 | (h) | Every line has a fixed exit, a fixed entry and waypoints, with no diagonal segment. No segment enters a class box, a reference box or a type parameter box, except the two boxes that the line joins. |
-| (i) | A class or interface box with no operation says why. A planned box shows `members not designed yet`. A code box shows `«dataType»` or a stereotype of the `stereotypeFor` map of the config. Any other class or interface with no operation is a violation. Types, unions, enums and consts are exempt. |
+| (i) | A class or interface box with no operation says why. A planned box shows `members not designed yet`. A code class box shows `«dataType»` or a stereotype of the `stereotypeFor` map of the config. A code interface box shows `«interface»`, or `«port»` when it is a port. Any other class or interface with no operation is a violation. Types, unions, enums and consts are exempt. |
 
 `fixtures/mini.model.json` is a small model with all four layers, two parts and every edge kind.
 `fixtures/broken.drawio` breaks rule 3, rule 9 and check (h) on purpose: `check.mjs` must fail on it.
@@ -217,7 +219,9 @@ node check.mjs /tmp/mini.drawio fixtures/mini.model.json         # exit 0
 
 ## Tests
 
-`node --test` in `tools/drawio-clases/` runs the tests of `test/`. They use Node built-ins only.
+`node --test 'test/*.test.mjs'` in `tools/drawio-clases/` runs the tests of `test/`. They use Node built-ins only and need no install step.
+Give the pattern: a plain `node --test` there also finds the tests of `page/`, and these need `npm ci` in `page/` first.
+`node --test` in `tools/drawio-clases/page/` runs the tests of the page builder, after `npm ci` there.
 The workflow `.github/workflows/drawio-clases.yml` runs them on each pull request and push that touches the tool.
 
 ## Render
@@ -228,3 +232,111 @@ It draws each line through its fixed exit, its waypoints and its fixed entry, wi
 A line without waypoints gets a simple elbow, so draw.io can route that line on another path.
 For each page it reports the labels larger than their box, the line labels on a box, the overlapping boxes and the lines that cross a box.
 `RENDER_SCALE` sets the PNG scale. The default keeps each side under 12000 pixels.
+
+## Page
+
+The page is a clickable class diagram for the browser. It shows one repository at a time, and a switch in the tool bar loads the other one.
+It reads only the model of `MODEL.md`, the model that `gen.mjs` draws. It never reads source code, so it never contradicts `classes.drawio`.
+It has the four layer bands with layer 4 at the top, the folder frames, the view frames inside a large folder, the planned zones, two box densities and three zoom levels.
+A click on a class chooses it: its lines and its neighbors stay, each neighbor gets a `dependent` or `dependency` tab, and a side panel lists its members, its views and its relations.
+The panel names a diamond by its kind and its label, for example `aggregation · decorate 1`.
+The search finds a class by name or stereotype, the highlight menu lights a stereotype, a view, a layer or a pattern, and a link such as `#app-GameEngine` opens one class.
+The pattern tab shows only when the edges of the model carry a `pattern`. A pattern lights its edges and the two ends of each edge.
+An `aggregation` draws a hollow diamond at its `from` type, and a `composition` a filled one. The label sits near the other end.
+The legend lists a line kind only when the loaded model has an edge of that kind.
+Each class with a file links to its line on GitHub, at the commit of the model.
+
+The builder lives in `page/`. It has its own `package.json`, so the scripts above keep zero dependencies.
+Its one dependency is `elkjs`: ELK places the boxes inside each frame with a layered layout.
+The builder packs the frames, the groups and the bands itself, and routes the structure and attribute lines on its own grid.
+
+#### Zones, labels and trunks
+
+- A folder with 48 types or more is zoned. The two real models give the value: App `domain/engine` holds 105 types, and the next largest folders hold 40 (API `adapters/http`) and 34 (App `application`).
+  In a zoned folder each view frame is a zone, with a corridor of 144 units to the next zone. A type with no view goes to the zone `in no view`.
+  The router pays for each step inside a zone or a folder that a line does not join, so the lines take the corridors.
+- At the far zoom level, the lines between two zones of one zoned folder give way to one summary line, with the count of those lines on a badge.
+  The real lines show at the middle and near levels, for the chosen class, and for a pattern highlight.
+- At the middle level, a line between two zones or two folders is a ghost line: thin and pale, as background texture. The summary lines stay there, lighter.
+  A ghost line takes full ink when one of its ends is chosen, hovered or highlighted. At the near level every line has full ink.
+- Each folder frame and each zone frame keeps a label room at the top. The far label of the zone lives in that room, so it covers no box and no other label.
+  The room is as high as a label of one line at 0.8 of its size, at the fit zoom of a 1440 by 900 window. The packer runs three times, because the fit zoom depends on the size of the canvas.
+  On screen, a label keeps its size while its room holds it, then shrinks to 0.6 of its size, then hides. It moves right, inside its room, past a band label.
+- The `implements` lines into one type enter it on one side and meet in one port, so they share one trunk. The `extends` lines do the same.
+  The side is the one that most of these lines would take.
+- A step beside a line to another target, one track away, costs more than two bends. So long parallel lines keep two tracks apart.
+
+### Build
+
+```sh
+cd tools/drawio-clases/page
+npm ci --ignore-scripts
+node build.mjs <out>/hexablock-api.model.json <out>/hexablock-app.model.json --out <site>
+```
+
+The build writes a static site into `<site>`:
+
+| File | Content |
+|---|---|
+| `index.html` | the page, as a full HTML document |
+| `<repo>.model.json` | the model, byte for byte as `merge.mjs` wrote it |
+| `<repo>.positions.json` | the box, frame, band and line positions of both densities, the label rooms and the summary lines |
+
+In the positions file, each line has the edge index `i`, its kind `k`, its points `p` and its label point `lb`. A line between two zones has `zx: 1`.
+Each folder frame and each zone frame has its label room `lb` as `[x, y, w, h]`. A zone frame has `zone: 1` and the ids of its boxes in `ids`.
+`sums` lists the summary lines: the frame indexes `a` and `b`, the count `n`, the points `p` and the badge point `c`.
+
+The page loads the two data files of a repository with a relative `fetch`.
+The repository switch has one button per model, in the order of the arguments, and the first model opens by default.
+The link key of a repository is its name without the `hexablock-` prefix, for example `app` in `#app-GameEngine`.
+`--artifact` writes the page as `diagrama-clases-hexablock.html` instead: the same page as a fragment with no doctype, `html`, `head` or `body` tag, for a claude.ai artifact. The data files stay the same.
+A wrong argument or a model that does not have the shape of `MODEL.md` gives one `error:` line, writes no file and ends with exit code 1.
+The build needs no browser, and the same models always give the same bytes.
+
+### View the site
+
+`fetch` does not read `file://` addresses, so serve the site over HTTP:
+
+```sh
+cd <site>
+python3 -m http.server 8000 --bind 127.0.0.1
+```
+
+Then open `http://127.0.0.1:8000/`.
+
+### Published site
+
+The workflow `.github/workflows/class-diagram-site.yml` publishes the page to GitHub Pages at <https://hexablock-suite.github.io/.github/>.
+It clones `hexablock-api` and `hexablock-app` at their `main`, runs `merge.mjs` on each one, builds the page and deploys it.
+No product repository commits its model, so the site always shows the code of `main` at the time of the build.
+
+| Start | When |
+|---|---|
+| push | a push to `main` of this repository that touches the tool or the workflow |
+| schedule | every six hours |
+| «Run workflow» | by hand, in the Actions tab or with `gh workflow run class-diagram-site.yml` |
+
+A push to a product repository cannot start a workflow of this repository. After a product merge, the site is up to date at the next scheduled run, or at once with «Run workflow».
+A violation in a product model stops the build, and the site keeps its last good version.
+The Pages source of this repository must be «GitHub Actions» (Settings > Pages).
+
+### Glyph table
+
+The width of a box depends on the width of the class name in IBM Plex Sans 600 at 12 px.
+`page/glyphs.json` holds the width of each printable ASCII glyph and the kerning of each glyph pair, upright and italic, as Chromium measures them.
+The build adds these widths, so it gives the same box widths as the browser.
+A character outside the table counts as the widest glyph.
+
+Run `node glyphs.mjs` in `page/` when the page changes the font, the weight or the size of the class names, or when a name uses a character outside printable ASCII.
+The script needs a local Chromium (`CHROME_BIN`, the Playwright browsers or the `PATH`) and network access to Google Fonts.
+Commit the new `glyphs.json` with the change that needs it.
+
+### Check the geometry
+
+```sh
+node geom.mjs <site>/hexablock-app.model.json <site>/hexablock-app.positions.json
+```
+
+`geom.mjs` prints, for each density, the count of boxes, frames and lines, the boxes that overlap, the lines that cross a box that they do not join, and the line ends off their box.
+It also prints the pairs of close parallel lines (12 units apart or less, side by side for more than 200 units), the label rooms that cover a box or another label room, and the summary lines that cross a box.
+The tests of `page/test/` run the same checks on the fixture models: no box overlap, no line across a foreign box, no label room over a box or a label, and an `aggregation` edge in the positions with its kind.

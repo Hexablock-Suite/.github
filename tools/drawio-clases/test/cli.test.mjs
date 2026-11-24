@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { absBoxes, labelText, parseXml, readPages } from '../check.mjs';
+import { merge } from '../merge.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MINI = path.join(DIR, 'fixtures', 'mini.model.json');
@@ -345,4 +346,74 @@ test('S2: a .drawio file that does not exist stops pin.mjs with one error line, 
   oneErrorLine(r);
   assert.match(r.stderr, /missing\.drawio/);
   assert.throws(() => readFileSync(out), /ENOENT/);
+});
+
+// notationModel runs merge() on code types of every kind and writes the model.
+// The types sit in layer 2 of one part. Each type has the shape that extract() gives.
+// change(model) edits the model before gen.mjs reads it.
+function notationModel(change = () => {}) {
+  const codeType = (name, kind, more = {}) => ({
+    id: name, name, kind, abstract: false, exported: true, file: `src/${name}.ts`, line: 1,
+    typeParams: [], attrs: [], ops: [], values: [], alias: null, ...more,
+  });
+  const attr = { vis: '+', name: 'level', type: 'number', static: false, readonly: true, optional: false };
+  const code = {
+    repo: 'mini',
+    head: 'abc1234',
+    types: [
+      codeType('LevelProblem', 'union', { values: ["'too-many'", "'unknown'"] }),
+      codeType('Color', 'enum', { values: ['Red', 'Blue'] }),
+      codeType('Score', 'type', { alias: 'number' }),
+      codeType('MoveRequest', 'interface', { attrs: [attr] }),
+      codeType('MoveDto', 'class', { attrs: [attr] }),
+    ],
+    edges: [],
+  };
+  const cfg = { repo: 'mini', parts: [{ id: 'core', title: 'Core', layers: [1, 2, 3, 4] }], views: {}, folders: [{ path: 'src/', layer: 2, part: 'core' }], patterns: {} };
+  const { model } = merge(code, [], cfg);
+  change(model);
+  const modelFile = writeJson('notation.model.json', model);
+  const out = tmp('notation.drawio');
+  const r = run('gen.mjs', [modelFile, out]);
+  assert.equal(r.status, 0, r.stderr);
+  return { modelFile, out };
+}
+
+// headOf gives the lines of the head compartment of one box on page 1: the stereotypes and the name.
+function headOf(file, id) {
+  const cell = page1(file).page.cells.get(`all-classes~type-${id}`);
+  return labelText(cell.label.split(/<hr\b[^>]*>/i)[0]).split('\n').map((s) => s.trim()).filter(Boolean);
+}
+
+test('S5c: a union of literals prints «enumeration» and no «union»', () => {
+  const { out } = notationModel();
+  assert.deepEqual(headOf(out, 'LevelProblem'), ['«enumeration»', 'LevelProblem']);
+});
+
+test('S5c: a type alias prints no «type» word', () => {
+  const { out } = notationModel();
+  assert.deepEqual(headOf(out, 'Score'), ['Score']);
+});
+
+test('S5c: an interface with no operation prints «interface» alone, and check.mjs accepts it', () => {
+  const { modelFile, out } = notationModel();
+  assert.deepEqual(headOf(out, 'MoveRequest'), ['«interface»', 'MoveRequest']);
+  const c = run('check.mjs', [out, modelFile]);
+  assert.equal(c.status, 0, c.stdout);
+});
+
+test('previous behavior: check.mjs accepts a port with no operation, which prints «port» alone', () => {
+  // merge() gives «port» to a layer-2 interface that an outer layer implements, and gen.mjs then adds no «interface».
+  const { modelFile, out } = notationModel((model) => {
+    model.types.find((t) => t.id === 'MoveRequest').stereotypes = ['port'];
+  });
+  assert.deepEqual(headOf(out, 'MoveRequest'), ['«port»', 'MoveRequest']);
+  const c = run('check.mjs', [out, modelFile]);
+  assert.equal(c.status, 0, c.stdout);
+});
+
+test('previous behavior: an enum prints «enumeration», and a class with no operation prints «dataType»', () => {
+  const { out } = notationModel();
+  assert.deepEqual(headOf(out, 'Color'), ['«enumeration»', 'Color']);
+  assert.deepEqual(headOf(out, 'MoveDto'), ['«dataType»', 'MoveDto']);
 });

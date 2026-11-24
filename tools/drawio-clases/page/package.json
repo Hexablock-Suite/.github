@@ -1,0 +1,14 @@
+{
+  "name": "drawio-clases-page",
+  "private": true,
+  "type": "module",
+  "description": "Builds the clickable class diagram page from the class models of drawio-clases.",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "elkjs": "0.12.1"
+  }
+}
