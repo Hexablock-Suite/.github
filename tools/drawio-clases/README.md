@@ -222,6 +222,7 @@ node check.mjs /tmp/mini.drawio fixtures/mini.model.json         # exit 0
 `node --test 'test/*.test.mjs'` in `tools/drawio-clases/` runs the tests of `test/`. They use Node built-ins only and need no install step.
 Give the pattern: a plain `node --test` there also finds the tests of `page/`, and these need `npm ci` in `page/` first.
 `node --test` in `tools/drawio-clases/page/` runs the tests of the page builder, after `npm ci` there.
+The tests of `page/test/zoom.test.mjs` drive the built page in a headless Chromium. They skip on a machine with no Chromium.
 The workflow `.github/workflows/drawio-clases.yml` runs them on each pull request and push that touches the tool.
 
 ## Render
@@ -266,6 +267,18 @@ The builder packs the frames, the groups and the bands itself, and routes the st
 - The `implements` lines into one type enter it on one side and meet in one port, so they share one trunk. The `extends` lines do the same.
   The side is the one that most of these lines would take.
 - A step beside a line to another target, one track away, costs more than two bends. So long parallel lines keep two tracks apart.
+
+#### Zoom and the preview
+
+A change of the scale makes the browser lay out every text again and draw every shape again. On the App model that costs 15 to 25 ms for each wheel event.
+So the page does not draw each step of a zoom. It keeps two views: the asked view, which is what the reader wants, and the drawn view, which is what the SVG holds.
+
+- While the scale changes, the page draws the SVG at most once in 120 ms (`DRAW_MS` in `page/src/view.js`), and once more when the scale rests.
+- Between two draws the page shows a preview: it scales and moves the drawn picture with a CSS transform on the canvas, which needs no layout and no drawing.
+  The text of a preview is a little soft. On a zoom out, the edge of the stage is empty until the next draw.
+- A pan keeps the scale, so it draws at once.
+- While the scale changes, a level switch has no fade. A fade of every text draws the whole diagram on each frame.
+- A box that takes the focus from the keyboard comes into view. A mouse press also gives the focus, but it starts a drag, so it does not move the view.
 
 ### Build
 

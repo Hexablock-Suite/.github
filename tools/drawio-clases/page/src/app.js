@@ -284,7 +284,35 @@
   // ---------- view transform ----------
   let lastScale = -1, titleFrame = 0, lastBoost = '';
   let ghostCount = 0;
+  // k, tx and ty are the asked view. drawnView is the view that the SVG holds. view.js has the rules of both.
+  let drawnView = { k: 0, tx: 0, ty: 0 }, drawnAt = 0, drawTimer = 0, calmTimer = 0, previewOn = false;
+  // apply shows the asked view. It draws the SVG, or it shows a preview and draws a little later.
   function apply() {
+    const asked = { k, tx, ty }, since = performance.now() - drawnAt;
+    if (drawsNow(asked, drawnView, since)) { draw(); return; }
+    const p = previewOf(asked, drawnView);
+    cv.style.transform = 'translate(' + p.x.toFixed(2) + 'px,' + p.y.toFixed(2) + 'px) scale(' + p.r.toFixed(5) + ')';
+    previewOn = true;
+    // The class zooming turns the fades off, so a level switch costs one draw and no animation.
+    cv.classList.add('zooming');
+    // The band labels are not part of the SVG, so they follow the asked view on each step.
+    placeTags();
+    if (!drawTimer) drawTimer = setTimeout(draw, DRAW_MS - since);
+  }
+  // draw writes the asked view into the SVG and removes the preview.
+  function draw() {
+    if (drawTimer) { clearTimeout(drawTimer); drawTimer = 0; }
+    // A preview can come back to the drawn scale, so the flag tells if a preview shows, not the scale.
+    const scaled = k !== drawnView.k || previewOn;
+    if (previewOn) {
+      previewOn = false;
+      cv.style.transform = '';
+      // The fades come back when the scale rests.
+      clearTimeout(calmTimer);
+      calmTimer = setTimeout(() => cv.classList.remove('zooming'), 200);
+    }
+    drawnView = { k, tx, ty };
+    drawnAt = performance.now();
     vp.setAttribute('transform', 'translate(' + tx.toFixed(2) + ' ' + ty.toFixed(2) + ') scale(' + k.toFixed(5) + ')');
     const lod = k < LOD1 ? 'lod0' : k < LOD2 ? 'lod1' : 'lod2';
     if (!cv.classList.contains(lod)) { cv.classList.remove('lod0', 'lod1', 'lod2'); cv.classList.add(lod); app.dataset.lod = lod; }
@@ -301,8 +329,9 @@
         }
       }
     }
-    if (!titleFrame) titleFrame = requestAnimationFrame(updateTitles);
     placeTags();
+    // A draw of a new scale is rare, so its titles update at once. A pan can draw many times in one frame, so its titles wait for the frame.
+    if (scaled) { cancelAnimationFrame(titleFrame); updateTitles(); } else if (!titleFrame) titleFrame = requestAnimationFrame(updateTitles);
   }
 
   // placeTags puts each band label in the top padding of its band.
@@ -329,6 +358,8 @@
   let lastTx = NaN, lastTy = NaN;
   function updateTitles() {
     titleFrame = 0;
+    // The titles sit in the drawn picture. During a preview they wait for the next draw.
+    if (k !== drawnView.k || tx !== drawnView.tx || ty !== drawnView.ty) return;
     const far = k < LOD1;
     if (far && (lastTx !== tx || lastTy !== ty || Math.abs(lastScale - k) > 1e-4)) { lastTx = tx; lastTy = ty; layoutZones(); }
     if (Math.abs(lastScale - k) < 1e-4) return;
@@ -357,14 +388,14 @@
   let anim = 0;
   function moveTo(nk, ntx, nty, animate = true, D = 260) {
     cancelAnimationFrame(anim);
-    if (!animate || reduce) { k = nk; tx = ntx; ty = nty; apply(); return; }
+    if (!animate || reduce) { k = nk; tx = ntx; ty = nty; draw(); return; }
     const k0 = k, x0 = tx, y0 = ty, t0 = performance.now();
     const step = (now) => {
       const u = Math.min(1, (now - t0) / D), e = u < 1 ? 1 - Math.pow(1 - u, 3) : 1;
       k = Math.exp(Math.log(k0) + (Math.log(nk) - Math.log(k0)) * e);
       tx = x0 + (ntx - x0) * e; ty = y0 + (nty - y0) * e;
-      apply();
-      if (u < 1) anim = requestAnimationFrame(step);
+      // The last step draws at once, so the view never rests on a preview.
+      if (u < 1) { apply(); anim = requestAnimationFrame(step); } else draw();
     };
     anim = requestAnimationFrame(step);
   }
@@ -801,7 +832,8 @@
     if (!pts.has(ev.pointerId)) return;
     const prev = pts.get(ev.pointerId);
     pts.set(ev.pointerId, [ev.clientX, ev.clientY]);
-    const r = cv.getBoundingClientRect();
+    // The stage gives the pointer origin, because a preview moves the canvas.
+    const r = stage.getBoundingClientRect();
     if (pts.size >= 2 && pinch) {
       const [a, b] = [...pts.values()];
       const d = Math.hypot(a[0] - b[0], a[1] - b[1]), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
@@ -836,7 +868,8 @@
   cv.addEventListener('pointercancel', endPointer);
   cv.addEventListener('wheel', (ev) => {
     ev.preventDefault();
-    const r = cv.getBoundingClientRect();
+    // The stage gives the pointer origin, because a preview moves the canvas.
+    const r = stage.getBoundingClientRect();
     const f = Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.0018) * (ev.deltaMode === 1 ? 16 : 1));
     cancelAnimationFrame(anim);
     zoomAt(ev.clientX - r.left, ev.clientY - r.top, f);
@@ -888,7 +921,8 @@
   });
   cv.addEventListener('focusin', (ev) => {
     const g = closest(ev.target, '.box');
-    if (g) ensureVisible(g.dataset.id);
+    // Only a focus from the keyboard brings its box into view. A mouse press also gives the focus, and it starts a drag.
+    if (g && g.matches(':focus-visible')) ensureVisible(g.dataset.id);
   });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {

@@ -125,9 +125,12 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 
 /* ---------- stage and canvas ---------- */
 .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
-#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+/* During a zoom, the page scales the drawn picture from its top left corner. See view.js. */
+#cv { transform-origin: 0 0; will-change: transform; position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
 #cv.drag { cursor: grabbing; }
 #vp { will-change: transform; }
+/* While the scale changes, a level switch has no fade: a fade of every text draws the whole diagram on each frame. */
+#cv.zooming, #cv.zooming * { transition: none !important; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
 
 /* Bands and frames. Each band sets its tint and accent. */
