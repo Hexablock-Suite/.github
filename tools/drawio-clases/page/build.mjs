@@ -3,9 +3,12 @@
 // Usage: node build.mjs <model.json>... --out <dir> [--artifact]
 // It writes a static site: the page, and one model file and one positions file per repository.
 // The page loads the two data files of a repository with a relative fetch.
+// A file <repo>.scenarios.json next to a model holds the checked scenarios of that repository (scenarios.mjs writes it).
+// Then the build also writes that file and one positions file per scenario: <repo>.scenario-<id>.positions.json.
+// The page, the model file and the positions file stay the same bytes with or without a scenario file.
 // --artifact writes the page as a fragment with no doctype, html, head or body tags, for a claude.ai artifact.
 // The build needs no browser. The same models always give the same bytes.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { LAYER_NAMES, layoutModel } from './layout.mjs';
@@ -21,6 +24,8 @@ const LABELS = { api: 'API', app: 'App' };
 class InputError extends Error {}
 
 const src = (name) => readFileSync(new URL(`src/${name}`, import.meta.url), 'utf8');
+// scenarioModel comes from src/scenario.js, the same file that the page runs.
+const { scenarioModel } = new Function(src('scenario.js') + '\nreturn { scenarioModel };')();
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 // parseArgs gives the model paths, the output directory and the form of the page.
@@ -92,6 +97,49 @@ function readModel(file) {
   return { model, bytes, key };
 }
 
+// readScenarios reads the scenario file next to one model, when it exists.
+// It checks the fields that the layout and the page use. scenarios.mjs has checked the rest.
+// It gives null when no scenario file exists, else the scenarios and the bytes of the file.
+function readScenarios(file, model) {
+  const name = path.join(path.dirname(file), `${model.repo}.scenarios.json`);
+  if (!existsSync(name)) return null;
+  const bytes = readFileSync(name);
+  let data;
+  try {
+    data = JSON.parse(bytes.toString('utf8'));
+  } catch (e) {
+    throw new InputError(`the scenario file ${name} is not JSON: ${String(e.message).split('\n')[0]}`);
+  }
+  if (!data || !isList(data.scenarios)) throw new InputError(`the scenario file ${name} has no scenarios array`);
+  const typeIds = new Set(model.types.map((t) => t.id));
+  const seen = new Set();
+  for (const s of data.scenarios) {
+    if (!s || typeof s.id !== 'string' || !/^[a-z0-9-]+$/.test(s.id) || seen.has(s.id)) {
+      throw new InputError(`the scenario file ${name} has a scenario with no unique id of lowercase letters, digits and "-"`);
+    }
+    seen.add(s.id);
+    const where = `the scenario ${s.id} of ${name}`;
+    if (typeof s.title !== 'string') throw new InputError(`${where} has no title string`);
+    for (const f of ['extensionPoints', 'adds', 'edits', 'unchanged']) {
+      if (!isList(s[f])) throw new InputError(`${where} has no ${f} array`);
+    }
+    const added = new Set();
+    for (const a of s.adds) {
+      if (!a || typeof a.name !== 'string' || typeIds.has(a.name) || added.has(a.name)) {
+        throw new InputError(`${where} adds a box with no new name: ${a && a.name}`);
+      }
+      added.add(a.name);
+      if (![1, 2, 3, 4].includes(a.layer) || typeof a.part !== 'string' || typeof a.file !== 'string' || !isList(a.stereotypes)) {
+        throw new InputError(`${where} adds the box ${a.name} with no layer, part, file or stereotypes: run scenarios.mjs first`);
+      }
+      for (const kind of ['implements', 'extends']) {
+        if (a[kind] !== undefined && !typeIds.has(a[kind])) throw new InputError(`${where} adds the box ${a.name}, which ${kind} ${a[kind]}, not a type id`);
+      }
+    }
+  }
+  return { scenarios: data.scenarios, bytes };
+}
+
 // pageHtml gives the page text. The full form is a document. The artifact form is its fragment.
 export function pageHtml(repos, artifact) {
   const buttons = repos.map((r) => `        <button type="button" role="radio" aria-checked="false" data-r="${r.key}" data-file="${esc(r.repo)}">${esc(r.label)}</button>\n`).join('');
@@ -99,7 +147,7 @@ export function pageHtml(repos, artifact) {
   const headPart = src('head.html') + '<style>\n' + src('page.css') + '</style>\n';
   // The layout sizes the band label rooms from LAYER_NAMES, so the page takes its band names from the same map.
   const names = '<script>\nconst LAYER_NAMES = ' + JSON.stringify(LAYER_NAMES) + ';\n</script>\n\n';
-  const bodyPart = '\n' + body + '\n<script>\n' + BOX_TEXT + '</script>\n\n<script>\n' + VIEW_RULES + '</script>\n\n' + names + '<script>\n' + src('app.js') + '</script>\n';
+  const bodyPart = '\n' + body + '\n<script>\n' + BOX_TEXT + '</script>\n\n<script>\n' + VIEW_RULES + '</script>\n\n<script>\n' + src('scenario.js') + '</script>\n\n' + names + '<script>\n' + src('app.js') + '</script>\n';
   if (artifact) return headPart + bodyPart;
   return '<!doctype html>\n<html lang="en">\n<head>\n' + headPart + '</head>\n<body>\n' + bodyPart + '</body>\n</html>\n';
 }
@@ -110,7 +158,7 @@ async function main(argv) {
   for (const file of models) {
     const { model, bytes, key } = readModel(file);
     if (repos.some((r) => r.key === key)) throw new InputError(`the repository ${model.repo} comes twice`);
-    repos.push({ key, repo: model.repo, label: LABELS[key] || key[0].toUpperCase() + key.slice(1), model, bytes });
+    repos.push({ key, repo: model.repo, label: LABELS[key] || key[0].toUpperCase() + key.slice(1), model, bytes, scenarios: readScenarios(file, model) });
   }
   // The layout runs before the first write, so a failure leaves no partial site.
   const files = [];
@@ -118,6 +166,14 @@ async function main(argv) {
     const { positions, unrouted } = await layoutModel(r.model);
     if (unrouted) console.error(`warning: ${r.repo}: ${unrouted} lines found no route`);
     files.push([`${r.repo}.model.json`, r.bytes], [`${r.repo}.positions.json`, JSON.stringify(positions)]);
+    if (!r.scenarios) continue;
+    // Each scenario lays out a copy of the model with its added boxes, through the same layout.
+    files.push([`${r.repo}.scenarios.json`, r.scenarios.bytes]);
+    for (const s of r.scenarios.scenarios) {
+      const laid = await layoutModel(scenarioModel(r.model, s));
+      if (laid.unrouted) console.error(`warning: ${r.repo}, scenario ${s.id}: ${laid.unrouted} lines found no route`);
+      files.push([`${r.repo}.scenario-${s.id}.positions.json`, JSON.stringify(laid.positions)]);
+    }
   }
   files.unshift([artifact ? ARTIFACT_PAGE : SITE_PAGE, pageHtml(repos, artifact)]);
   mkdirSync(out, { recursive: true });

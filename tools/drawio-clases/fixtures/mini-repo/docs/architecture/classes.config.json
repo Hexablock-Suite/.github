@@ -13,7 +13,13 @@
       "id": "shell",
       "title": "Shell",
       "layers": [
-        3,
+        3
+      ]
+    },
+    {
+      "id": "infrastructure",
+      "title": "Infrastructure",
+      "layers": [
         4
       ]
     }
@@ -38,7 +44,7 @@
     {
       "path": "src/infrastructure/",
       "layer": 4,
-      "part": "shell"
+      "part": "infrastructure"
     }
   ],
   "patterns": {

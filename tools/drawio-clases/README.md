@@ -249,7 +249,7 @@ The folders of the config give them, as they give the layer and the part of a co
 A file that is missing or is not JSON gives one `error:` line on stderr and exit 1. A wrong argument count gives the usage line and exit 2.
 
 `fixtures/mini.scenarios.json` is a good scenario file for `fixtures/mini.model.json`.
-`fixtures/mini-repo/` is its repository root: the config and the one file that the scenarios edit.
+`fixtures/mini-repo/` is its repository root: the config and the two files that the scenarios edit. No type of the model sits in `src/main.ts`.
 
 ```sh
 node scenarios.mjs fixtures/mini.scenarios.json fixtures/mini.model.json fixtures/mini-repo /tmp/scenarios   # exit 0
@@ -282,6 +282,7 @@ The layer chip of the side panel and the layer tab of the highlight menu show th
 A click on a class chooses it: its lines and its neighbors stay, each neighbor gets a `dependent` or `dependency` tab, and a side panel lists its members, its views and its relations.
 The panel names a diamond by its kind and its label, for example `aggregation · decorate 1`.
 The search finds a class by name or stereotype, the highlight menu lights a stereotype, a view, a layer or a pattern, and a link such as `#app-GameEngine` opens one class.
+The scenario selector shows one extensibility scenario on the model (see «Scenarios» below).
 The pattern tab shows only when the edges of the model carry a `pattern`. A pattern lights its edges and the two ends of each edge.
 An `aggregation` draws a hollow diamond at its `from` type, and a `composition` a filled one. The label sits near the other end.
 The legend lists a line kind only when the loaded model has an edge of that kind.
@@ -290,6 +291,22 @@ Each class with a file links to its line on GitHub, at the commit of the model.
 The builder lives in `page/`. It has its own `package.json`, so the scripts above keep zero dependencies.
 Its one dependency is `elkjs`: ELK places the boxes inside each frame with a layered layout.
 The builder packs the frames, the groups and the bands itself, and routes the structure and attribute lines on its own grid.
+
+#### Scenarios
+
+A scenario of `scenarios.json` (section «Scenarios» above) shows on the same model, so it names only types that the code has.
+
+- The tool bar has a scenario selector. It lists the scenarios of the loaded repository, after «No scenario». A repository with no scenario file lists «No scenario» only.
+- With a scenario, the page draws a copy of the model with the added boxes. `page/src/scenario.js` makes that copy for the build and for the page, so the line indexes of both agree.
+- Each group that holds an `unchanged` type fades. A box that the scenario names keeps its ink, also in a group that fades.
+- Each extension point lights, with the thick border of the highlight menu.
+- Each added box shows dashed in the focal color, in the group of its file. Its line to the type that it implements or extends has the same color.
+- Each box of an edited file carries the mark `edited` on its bottom edge.
+- The side panel shows the scenario: a link to its `source`, each edited file with its `change` line and the types in it, then the added boxes, the extension points and the unchanged types.
+  An edited file with no type in the model shows too, with a note. A click on a type chooses it. When the choice ends, the panel shows the scenario again.
+- The address names the scenario after a `~`: `#app~fifth-variant`, or `#app-GameEngine~fifth-variant` with a chosen class. A link opens it. «No scenario» takes the scenario out of the address.
+- «No scenario» gives the page of the model alone, the same page as with no scenario file.
+- The legend lists the marks of the scenario while one shows.
 
 #### Zones, labels and trunks
 
@@ -342,12 +359,22 @@ The build writes a static site into `<site>`:
 | `index.html` | the page, as a full HTML document |
 | `<repo>.model.json` | the model, byte for byte as `merge.mjs` wrote it |
 | `<repo>.positions.json` | the box, frame, band and line positions of both densities, and the label rooms |
+| `<repo>.scenarios.json` | only with a scenario file: that file, byte for byte |
+| `<repo>.scenario-<id>.positions.json` | only with a scenario file: the positions of one scenario, the layout of a copy of the model with its added boxes |
+
+The build reads `<repo>.scenarios.json` next to each model when it exists. `scenarios.mjs` writes that file, with the layer and the part of each added box.
+For each scenario, the build lays out a copy of the model with the added boxes, through the same layout, and writes its positions file.
+The lines of the added boxes come after the edges of the model, so the edge index `i` of a line means the same edge in both positions files.
+`index.html`, `<repo>.model.json` and `<repo>.positions.json` have the same bytes with or without a scenario file.
+A scenario file that is not JSON, or an added box with no layer, part or file, or with a line to a type id that the model does not have, gives one `error:` line and writes no file.
+`fixtures/mini.scenarios.json` is the input of `scenarios.mjs`, not its output. So build `fixtures/mini.model.json` from a copy in another folder.
 
 In the positions file, each line has the edge index `i`, its kind `k`, its points `p` and its label point `lb`. A line between two zones has `zx: 1`.
 Each folder frame and each zone frame has its label room `lb` as `[x, y, w, h]`. A zone frame has `zone: 1` and the ids of its boxes in `ids`.
 Each band has the label room `lb` of its band label as `[x, y, w, h]`, at the top left corner of the band.
 
 The page loads the two data files of a repository with a relative `fetch`.
+It also asks for the scenario file. A missing file gives no scenario, and the browser logs one 404 for it. The positions of a scenario load when the reader picks it.
 The repository switch has one button per model, in the order of the arguments, and the first model opens by default.
 The link key of a repository is its name without the `hexablock-` prefix, for example `app` in `#app-GameEngine`.
 `--artifact` writes the page as `diagrama-clases-hexablock.html` instead: the same page as a fragment with no doctype, `html`, `head` or `body` tag, for a claude.ai artifact. The data files stay the same.
@@ -370,6 +397,7 @@ Then open `http://127.0.0.1:8000/`.
 The workflow `.github/workflows/class-diagram-site.yml` publishes the page to GitHub Pages at <https://hexablock-suite.github.io/.github/>.
 It clones `hexablock-api` and `hexablock-app` at their `main`, runs `merge.mjs` on each one, builds the page and deploys it.
 After `merge.mjs`, it runs `scenarios.mjs` on each product that has `docs/architecture/scenarios.json`.
+`scenarios.mjs` writes its output next to the models, so the build finds it and the page lists the scenarios of that product.
 No product repository commits its model, so the site always shows the code of `main` at the time of the build.
 
 | Start | When |

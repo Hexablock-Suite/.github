@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,9 +11,15 @@ import { checkGeometry, routedCount } from '../geom.mjs';
 import { boxText } from '../text.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const MINI = path.join(DIR, '..', 'fixtures', 'mini.model.json');
+const SCENARIOS = path.join(DIR, '..', 'fixtures', 'mini.scenarios.json');
+const SCENARIO_REPO = path.join(DIR, '..', 'fixtures', 'mini-repo');
 const scratch = mkdtempSync(path.join(tmpdir(), 'drawio-clases-page-test-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
+// The build reads the scenario file next to a model. The fixture folder also holds the source scenario file of scenarios.mjs.
+// So the tests build a copy of the mini model, in a folder of its own.
+const MINI = path.join(scratch, 'mini', 'mini.model.json');
+mkdirSync(path.dirname(MINI));
+copyFileSync(path.join(DIR, '..', 'fixtures', 'mini.model.json'), MINI);
 
 let seq = 0;
 const tmp = (name) => {
@@ -392,5 +398,93 @@ test('#6: each band has a label room at its top left, and no group frame of the 
         }
       }
     }
+  }
+});
+
+// scenarioDir gives a directory with the mini model and its checked scenario file, as the workflow leaves them.
+// scenarios.mjs writes the scenario file, so the build reads the same file as on the site.
+function scenarioDir() {
+  const dir = tmp('models');
+  mkdirSync(dir);
+  copyFileSync(MINI, path.join(dir, 'mini.model.json'));
+  const r = spawnSync(process.execPath, [path.join(DIR, '..', 'scenarios.mjs'), SCENARIOS, MINI, SCENARIO_REPO, dir], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  return dir;
+}
+
+test('#7: with no scenario file the build writes the same page, model and positions bytes as with one, and the page holds the scenario selector', () => {
+  const plain = build([MINI]);
+  const withScenarios = build([path.join(scenarioDir(), 'mini.model.json')]);
+  assert.deepEqual(readdirSync(plain.out).sort(), ['index.html', 'mini.model.json', 'mini.positions.json']);
+  for (const f of ['index.html', 'mini.model.json', 'mini.positions.json']) {
+    assert.deepEqual(readFileSync(path.join(withScenarios.out, f)), readFileSync(path.join(plain.out, f)), f);
+  }
+  const html = readFileSync(path.join(plain.out, 'index.html'), 'utf8');
+  assert.match(html, /<select id="sc"[^>]*>\s*<option value="">No scenario<\/option>/);
+});
+
+// ADDED gives the group of each added box of the fixture scenarios: the folder of its file below src/.
+const ADDED = { SquareRules: 'domain/rules', FileStore: 'adapters' };
+
+test('#7: the build writes the scenario file and one positions file per scenario, laid out on a copy of the model with the added boxes', () => {
+  const dir = scenarioDir();
+  const a = build([path.join(dir, 'mini.model.json')]);
+  const b = build([path.join(dir, 'mini.model.json')]);
+  assert.deepEqual(filesOf(b.out), filesOf(a.out));
+  const { out } = a;
+  assert.deepEqual(readdirSync(out).sort(), [
+    'index.html', 'mini.model.json', 'mini.positions.json',
+    'mini.scenario-file-store.positions.json', 'mini.scenario-square-rules.positions.json', 'mini.scenarios.json',
+  ]);
+  assert.deepEqual(readFileSync(path.join(out, 'mini.scenarios.json')), readFileSync(path.join(dir, 'mini.scenarios.json')));
+  const model = readJson(MINI);
+  for (const s of readJson(path.join(dir, 'mini.scenarios.json')).scenarios) {
+    const pos = readJson(path.join(out, `mini.scenario-${s.id}.positions.json`));
+    // The lines of the added boxes come after the edges of the model, in the order of the adds.
+    const added = s.adds.flatMap((x) => ['implements', 'extends'].filter((k) => x[k]).map((k) => edge(x.name, x[k], k)));
+    const scenarioEdges = { edges: [...model.edges, ...added] };
+    for (const density of ['compact', 'full']) {
+      const P = pos[density];
+      const where = `${s.id} ${density}`;
+      assert.deepEqual(Object.keys(P.boxes).sort(), [...model.types.map((t) => t.id), ...s.adds.map((x) => x.name)].sort(), where);
+      const g = checkGeometry(scenarioEdges, P);
+      assert.equal(g.overlaps, 0, `${where}: ${g.overlapList.join(' ')}`);
+      assert.equal(g.crossings, 0, `${where}: ${g.crossList.join(' ')}`);
+      assert.equal(g.badEnds, 0, where);
+      for (const x of s.adds) {
+        // The added box sits in the group of its file, in the band of its layer.
+        const frame = P.frames.find((f) => f.kind === 'g' && f.layer === x.layer && f.title === ADDED[x.name]);
+        assert.ok(frame, `${where}: no group ${ADDED[x.name]}`);
+        const [bx, by, bw, bh] = P.boxes[x.name];
+        assert.ok(bx >= frame.x && by >= frame.y && bx + bw <= frame.x + frame.w && by + bh <= frame.y + frame.h, `${where}: ${x.name} is outside ${frame.title}`);
+      }
+      added.forEach((e, j) => {
+        const ln = P.lines.find((l) => l.i === model.edges.length + j);
+        assert.ok(ln, `${where}: no line ${e.from} ${e.kind} ${e.to}`);
+        assert.equal(ln.k, e.kind);
+        assert.ok(onBorder(ln.p[0], P.boxes[e.from]) && onBorder(ln.p[ln.p.length - 1], P.boxes[e.to]), `${where}: ${ln.p}`);
+      });
+    }
+  }
+});
+
+test('#7: a scenario file that is not JSON, or that adds a line to a type the model does not have, gives one error line, exit 1 and no file', () => {
+  const good = readJson(path.join(scenarioDir(), 'mini.scenarios.json'));
+  const bad = structuredClone(good);
+  bad.scenarios[0].adds[0].extends = 'Nope';
+  for (const [text, why] of [['{ not json', /mini\.scenarios\.json is not JSON/], [JSON.stringify(bad), /Nope/]]) {
+    const dir = tmp('models');
+    mkdirSync(dir);
+    copyFileSync(MINI, path.join(dir, 'mini.model.json'));
+    writeFileSync(path.join(dir, 'mini.scenarios.json'), text);
+    const out = tmp('site');
+    const r = run([path.join(dir, 'mini.model.json'), '--out', out]);
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(r.stdout, '');
+    const err = lines(r.stderr);
+    assert.equal(err.length, 1, r.stderr);
+    assert.match(err[0], /^error: /);
+    assert.match(err[0], why);
+    assert.equal(existsSync(out), false);
   }
 });

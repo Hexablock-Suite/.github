@@ -51,6 +51,10 @@
         {
           "file": "src/infrastructure/web-server.ts",
           "change": "build a FileStore in place of the MemoryStore"
+        },
+        {
+          "file": "src/main.ts",
+          "change": "read the store folder from the environment"
         }
       ],
       "unchanged": [

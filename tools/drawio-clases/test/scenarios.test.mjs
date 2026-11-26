@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { placeFile } from '../merge.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MINI = path.join(DIR, 'fixtures', 'mini.model.json');
@@ -64,6 +65,16 @@ test('scenarios: the good fixture passes and gives the layer and the part of eac
   const text = readFileSync(outFile, 'utf8');
   assert.deepEqual(JSON.parse(text), expected);
   assert.equal(text, JSON.stringify(expected, null, 2) + '\n');
+});
+
+test('scenarios: the fixture repository places each code type of the fixture model in its layer and its part', () => {
+  const cfg = JSON.parse(readFileSync(path.join(REPO, 'docs', 'architecture', 'classes.config.json'), 'utf8'));
+  const model = JSON.parse(readFileSync(MINI, 'utf8'));
+  assert.deepEqual(cfg.parts.map(({ id, title }) => ({ id, title })), model.parts);
+  for (const t of model.types.filter((x) => x.file)) {
+    const { layer, part } = placeFile(cfg.folders, t.file) ?? {};
+    assert.deepEqual({ layer, part }, { layer: t.layer, part: t.part }, t.id);
+  }
 });
 
 test('scenarios: an extension point that is not a type id of the model is a violation', () => {
@@ -148,6 +159,7 @@ test('scenarios: a config of another repository than the model is a violation', 
   const cfg = JSON.parse(readFileSync(path.join(REPO, 'docs', 'architecture', 'classes.config.json'), 'utf8'));
   writeFileSync(path.join(repo, 'docs', 'architecture', 'classes.config.json'), JSON.stringify({ ...cfg, repo: 'other' }));
   writeFileSync(path.join(repo, 'src', 'infrastructure', 'web-server.ts'), '');
+  writeFileSync(path.join(repo, 'src', 'main.ts'), '');
   expectViolations(goodFile(), ['classes.config.json is for "other", the model is for "mini"'], repo);
 });
 

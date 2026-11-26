@@ -99,6 +99,9 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 .gl .dia { fill: var(--wire-s); }
 .gl .dia.hol { fill: var(--surface); }
 #repo { align-self: center; }
+.scn { flex: none; min-width: 0; }
+#sc { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; min-height: 36px; padding: 6px 8px; max-width: 260px; text-overflow: ellipsis; cursor: pointer; }
+#sc:hover { border-color: var(--muted); }
 .short { display: none; }
 
 /* Menus open under their button. They are not modal. */
@@ -270,9 +273,9 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 
 /* «Highlight» lights a set of types: a thick outline, and the rest fades.
    With a chosen class, the choice shows its relations and the outline still marks the set. */
-#cv.has-hl .box.lit .bx { stroke: var(--ink); stroke-width: 2.4; }
-#cv.has-hl.lod0 .box.lit .bx { fill: color-mix(in srgb, var(--la) 62%, var(--surface)); stroke: var(--ink); }
-#cv.has-hl:not(.has-sel) .box:not(.lit) { opacity: .16; }
+#cv.has-hl .box.lit .bx, #cv.has-sc .box.sc-ext .bx { stroke: var(--ink); stroke-width: 2.4; }
+#cv.has-hl.lod0 .box.lit .bx, #cv.has-sc.lod0 .box.sc-ext .bx { fill: color-mix(in srgb, var(--la) 62%, var(--surface)); stroke: var(--ink); }
+#cv.has-hl:not(.has-sel) .box:not(.lit), #cv.has-sc:not(.has-sel) .box.sc-dim { opacity: .16; }
 #cv.has-hl:not(.has-sel) .e:not(.lit) { opacity: .06; }
 #cv.has-hl.has-sel .box.lit:not(.on) { opacity: .5; }
 #cv.has-hl.has-sel .box:not(.lit):not(.on) { opacity: .12; }
@@ -280,6 +283,14 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 /* A pattern lights its edges as well: they take the ink and a thicker stroke. */
 #cv.hl-e:not(.has-sel) .e.lit .ln, #cv.hl-e:not(.has-sel) .e.lit .hd { stroke: var(--ink); stroke-width: 2.2; opacity: 1; }
 #cv.hl-e:not(.has-sel) .e.lit.comp .hd { fill: var(--ink); }
+/* A scenario builds on the highlight: its extension points take the lit border, and the groups of its unchanged types fade.
+   Each added box is dashed in the focal color, and so is its line. Each box of an edited file carries the mark «edited». */
+#cv.has-sc:not(.has-sel) .e.sc-dim { opacity: .06; }
+#cv.has-sc .fr-g.sc-dim, #cv.has-sc .fold.sc-dim { opacity: .3; }
+.box.added .bx, #cv.lod0 .box.added .bx { stroke: var(--focal); stroke-width: 1.6; stroke-dasharray: 5 3; }
+#cv.has-sc .e.sc-add .ln, #cv.has-sc .e.sc-add .hd { stroke: var(--focal); stroke-width: 1.9; opacity: 1; }
+.mk rect { fill: var(--focal); stroke: var(--focal); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.mk text { font: 600 8px var(--font-mono); letter-spacing: .08em; text-anchor: middle; fill: var(--focal-fg); }
 .hl-chip { position: absolute; top: 12px; left: 50%; translate: -50% 0; z-index: 4; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 32px);
   background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 8px 22px -14px var(--shadow); padding: 4px 4px 4px 12px; font-size: 13px; }
 .hl-chip[hidden] { display: none; }
@@ -313,6 +324,9 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 .legend .sw-box { fill: var(--surface); stroke: var(--box-line); }
 .legend .sw-box.dash { stroke-dasharray: 3 2; }
 .legend .sw-lit { fill: var(--surface); stroke: var(--ink); stroke-width: 2.4; }
+.legend .sw-add { fill: var(--surface); stroke: var(--focal); stroke-width: 1.6; stroke-dasharray: 3 2; }
+.legend .sw-mk { fill: var(--focal); }
+.legend .sw-dim { fill: var(--surface); stroke: var(--box-line); opacity: .3; }
 .legend .sw-zone { fill: var(--l2); stroke: var(--l2-a); stroke-dasharray: 3 2; }
 .legend .sw-block { fill: color-mix(in srgb, var(--l2-a) 16%, var(--surface)); stroke: color-mix(in srgb, var(--l2-a) 42%, var(--surface)); }
 .legend .sw-sel { fill: var(--focal-tint); stroke: var(--focal); }
@@ -353,6 +367,9 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 .rel small { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-align: right; overflow-wrap: anywhere; max-width: 50%; }
 .rel .gl { width: 22px; }
 .p-note { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; }
+.edits { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.edits .ef { font: 12.5px var(--font-mono); overflow-wrap: anywhere; }
+.edits .ec { margin: 2px 0 6px; font-size: 13px; }
 .views { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font: 12.5px var(--font-mono); }
 .views a { display: inline-flex; align-items: center; min-height: 28px; overflow-wrap: anywhere; }
 .grab { display: none; }
@@ -371,7 +388,8 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
   #dens { order: 1; flex: none; }
   .find { order: 3; flex: 1 1 0; }
   #repo { order: 4; flex: none; }
-  .menu-w { order: 5; }
+  .menu-w, .scn { order: 5; }
+  #sc { max-width: 132px; }
   /* Enter and a tap on a result go to the class, so the phone needs no extra button. */
   #go { display: none; }
   .menu-w { position: static; }
