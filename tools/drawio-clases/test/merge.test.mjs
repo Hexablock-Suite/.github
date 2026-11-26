@@ -567,3 +567,40 @@ test('A2: a component of src/ that export default or an export list exports is a
   const c = extract(repo);
   assert.deepEqual(c.types.filter((t) => t.kind === 'component').map((t) => t.id), ['Panel', 'Frame']);
 });
+
+// splitConfig has the two parts of the split of Hexablock-Suite/hexablock-app#394 and Hexablock-Suite/hexablock-api#198.
+// The part adapters holds layer 3 and the part infrastructure holds layer 4.
+// The views map keeps the prefix ad- and the view map-4-adapters on the part adapters, as both product configs do.
+const splitConfig = () => ({
+  repo: 'mini',
+  parts: [
+    { id: 'adapters', title: 'Adapters', layers: [3] },
+    { id: 'infrastructure', title: 'Infrastructure', layers: [4] },
+  ],
+  views: { 'ad-': 'adapters', 'map-4-adapters': 'adapters' },
+  folders: [
+    { path: 'src/adapters/', layer: 3, part: 'adapters' },
+    { path: 'src/infrastructure/', layer: 4, part: 'infrastructure' },
+  ],
+  patterns: {},
+});
+
+test('#6: a planned layer 4 type of a view mapped to a layer 3 part goes to the part of layer 4', () => {
+  const repo = { ...codeType('HttpRepo'), file: 'src/adapters/http-repo.ts' };
+  const views = [
+    view('ad-1-storage', 'LocalStore', 'HttpRepo', 'use', ['save()'], 4),
+    view('map-4-adapters', 'SystemClock', 'HttpRepo', 'use', ['now()'], 4),
+    view('ad-2-http', 'HttpGateway', 'HttpRepo', 'use', ['send()'], 3),
+  ];
+  const { model } = merge(code([repo], []), views, splitConfig());
+  const where = (id) => {
+    const t = model.types.find((x) => x.id === id);
+    return t && { layer: t.layer, part: t.part, status: t.status };
+  };
+  assert.deepEqual(where('LocalStore'), { layer: 4, part: 'infrastructure', status: 'planned' });
+  assert.deepEqual(where('SystemClock'), { layer: 4, part: 'infrastructure', status: 'planned' });
+  // A planned layer 3 type of a view of the same prefix keeps the part adapters.
+  assert.deepEqual(where('HttpGateway'), { layer: 3, part: 'adapters', status: 'planned' });
+  // A code type takes its part from its folder.
+  assert.deepEqual(where('HttpRepo'), { layer: 3, part: 'adapters', status: 'code' });
+});
