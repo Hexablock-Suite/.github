@@ -3,7 +3,7 @@
   const $ = (s) => document.querySelector(s);
   const cv = $('#cv'), vp = $('#vp'), stage = $('#stage'), panel = $('#panel'), app = $('#app');
   const LAYER = { 1: 'Entities', 2: 'Use cases', 3: 'Interface adapters', 4: 'Frameworks and drivers' };
-  const KIND = { class: 'class', interface: 'interface', type: 'type alias', union: 'union', const: 'constant', enum: 'enumeration' };
+  const KIND = { class: 'class', interface: 'interface', type: 'type alias', union: 'union', const: 'constant', enum: 'enumeration', component: 'component' };
   // Zoom levels. Far shows zones, middle shows names, near shows members and labels.
   // The values come from screenshots: at 0.44 a boosted name reads at about 8px.
   const LOD1 = 0.44, LOD2 = 0.9;

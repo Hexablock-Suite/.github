@@ -9,6 +9,8 @@
 // It also writes <out-dir>/planned-report-<repo>.md with the planned types, the planned members,
 // the unresolved view lines and the view types without a layer.
 // The default config is <repo-root>/docs/architecture/classes.config.json. It maps folders and views to layers and parts.
+// The first form prints one `warning:` line on stderr for each route of app/ that no folder of the config holds.
+// A view box of that route stays a planned type, and the warning does not change the exit code.
 // The second form checks one model against the five invariants of MODEL.md.
 // It prints each violation on one line and exits 1 when it finds one.
 
@@ -129,7 +131,7 @@ const majority = (values) => {
 
 // Build the model of one repository from its code, its views and its config.
 export function merge(code, views, cfg) {
-  const notes = { unparsed: [], diamonds: [], kinds: [], heritageUses: [], unplaced: [], dangling: [], ambiguous: [], lollipops: [], stale: [], staleIgnored: [], renames: [], noOps: [], stereotypeIgnored: [] };
+  const notes = { unparsed: [], diamonds: [], kinds: [], heritageUses: [], unplaced: [], dangling: [], ambiguous: [], lollipops: [], stale: [], staleIgnored: [], renames: [], noOps: [], stereotypeIgnored: [], warnings: [] };
   const partIds = cfg.parts.map((p) => p.id);
   const partOfView = (view) => {
     if (view in cfg.views) return cfg.views[view];
@@ -156,7 +158,9 @@ export function merge(code, views, cfg) {
 
   // A lollipop draws an interface by name. An interface that no box and no code type has becomes a
   // planned interface in the layer of the box under the stick.
-  const codeTypeNames = new Set(code.types.map((t) => t.name));
+  // A route of app/ that no folder holds is no code type name. A view that draws it keeps it planned.
+  const isHomelessRoute = (t) => t.kind === 'component' && t.file.startsWith('app/') && !placeFile(t.file);
+  const codeTypeNames = new Set(code.types.filter((t) => !isHomelessRoute(t)).map((t) => t.name));
   const lollipopOnly = new Set();
   for (const v of viewOrder) {
     for (const l of v.lines) {
@@ -206,14 +210,18 @@ export function merge(code, views, cfg) {
   const occurrences = (name, memberName) =>
     detailed(name).flatMap(({ view, box }) => [...box.attrs, ...box.ops].filter((m) => m.name === memberName).map((m) => `${view}.html:${m.line}`));
 
-  // Code types: the exported ones, plus a local type or a const object that a view draws.
+  // Code types: the exported ones, plus a local type, a const object or a component that a view draws.
   const types = [];
   for (const t of code.types) {
     const isDrawn = drawn.has(t.name);
-    if (!isDrawn && (!t.exported || t.kind === 'const')) continue;
+    if (!isDrawn && (!t.exported || t.kind === 'const' || t.kind === 'component')) continue;
     const place = placeFile(t.file);
     if (!place) {
       notes.unplaced.push(`${t.id} (${t.file}): no folder of the config holds it`);
+      // A route of app/ with no folder gives a warning, not a failure. A product config can lack the app/ folder.
+      if (isHomelessRoute(t)) {
+        notes.warnings.push(`${t.id} (${t.file}): no folder of the config holds this route; its view box stays planned`);
+      }
       continue;
     }
     const type = {
@@ -341,8 +349,10 @@ export function merge(code, views, cfg) {
     if (!pairs.has(key)) pairs.set(key, { from, to, codeHeritage: null, codeUse: null, viewHeritage: [], viewAssoc: [] });
     return pairs.get(key);
   };
+  // A code line of a route with no folder is dropped: the planned type of its name takes only the view lines.
+  const homeless = new Set(code.types.filter(isHomelessRoute).map((t) => t.id));
   for (const e of code.edges) {
-    if (!byId.has(e.from) || !byId.has(e.to)) continue;
+    if (!byId.has(e.from) || !byId.has(e.to) || homeless.has(e.from) || homeless.has(e.to)) continue;
     const p = pairOf(e.from, e.to);
     if (HERITAGE.has(e.kind)) p.codeHeritage = e;
     else p.codeUse = e;
@@ -441,6 +451,8 @@ export function merge(code, views, cfg) {
   // A union of literals is an enumeration (team decision, 2026-11-24).
   // The model holds the word, so gen.mjs and the page print the same word.
   for (const t of types) if (t.kind === 'union' && !t.stereotypes.includes('enumeration')) t.stereotypes.push('enumeration');
+  // A function component is no class, so its box says «component». gen.mjs and the page print the word of the model.
+  for (const t of types) if (t.kind === 'component' && !t.stereotypes.includes('component')) t.stereotypes.push('component');
 
   // A code class with no operation only carries data, so it gets «dataType».
   // The box then says why it has no operation (rule (i) of check.mjs).
@@ -630,6 +642,7 @@ function main(argv) {
   const code = extract(repoArg);
   if (code.repo !== cfg.repo) throw new Error(`config ${cfgPath} is for ${cfg.repo}, the repository is ${code.repo}`);
   const { model, notes, unresolved } = merge(code, parseViews(repoArg), cfg);
+  for (const w of notes.warnings) console.error(`warning: ${w}`);
   const md = report(model, notes, unresolved);
   // The view of a planned member serves the report only; the model keeps the MODEL.md fields.
   for (const t of model.types) for (const m of [...t.attrs, ...t.ops]) delete m._view;

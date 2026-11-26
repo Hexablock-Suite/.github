@@ -21,7 +21,7 @@ Each HexaBlock repository keeps its own files in `docs/architecture/`:
 ## Quick start
 
 You need Node 24 and a clone of the target repository with its dependencies installed (`merge.mjs` loads its `typescript`).
-The `src/` of that clone must have no uncommitted change, because the model comes from `HEAD`.
+The `src/` and `app/` of that clone must have no uncommitted change, because the model comes from `HEAD`.
 In the commands, `<repo>` is the root of that clone and `<out>` is a scratch directory outside it.
 
 1. Clone this repository and go to the tool.
@@ -74,13 +74,27 @@ The layout keeps order only, because a fixed position breaks when a new class ar
 
 | Step | Script | Input | Output |
 |---|---|---|---|
-| 1 | `extract.mjs` | the `src/` of the repository at `head` | code types and code edges |
+| 1 | `extract.mjs` | the `src/` and `app/` of the repository at `head` | code types and code edges |
 | 2 | `views.mjs` | the class views of `docs/architecture/` | planned types, planned members and view edges |
 | 3 | `merge.mjs` | the output of steps 1 and 2 | one model in the shape of `MODEL.md` |
 | 4 | `gen.mjs` | the model and the optional layout file | one uncompressed multi-page `.drawio` file |
 | 5 | `check.mjs` | the `.drawio` file and the model | the notation violations, exit 1 when there is one |
 | 6 | `render.mjs` | the `.drawio` file | one PNG per page, for a visual look |
 | - | `pin.mjs` | a `.drawio` file that a person edited, and the model | the layout file |
+
+### What the generator reads
+
+`extract.mjs` reads the `.ts` and `.tsx` files of `src/` and `app/`. Test files (`*.test.ts`, `*.spec.ts`) and declaration files (`*.d.ts`) stay out.
+
+- A top-level class, interface, type alias or enum is a code type. A top-level `const` that holds an object literal is a code type of kind `const`.
+- A function component is a code type of kind `component`. In `src/`, it is an exported function, or an exported `const` that holds a function, with a PascalCase name in a `.tsx` file. In `app/`, it is the default export of each route file, for example `export default function GameScreen()`.
+  Its props are its attributes. Its body gives its uses.
+- A member uses a model type when its types, its `new` calls, its values or the inferred types of its local variables name that type.
+- A use inside a top-level function of the same file counts for the member that calls the function. A JSX tag of a component of the same file is a call too. The tool does not follow a function of another file.
+- `views.mjs` reads the class views. A box or a line that no code type or code use has becomes planned.
+
+`merge.mjs` keeps a `const` or a `component` only when a view draws it. It places each code type by the folders of the config.
+A route of `app/` that no folder holds prints one `warning:` line. It is no code type: a view box of that route stays a planned type, as before the tool read `app/`, and its code lines stay out. It does not fail the run.
 
 ## Commands
 
@@ -96,6 +110,7 @@ node render.mjs <out.drawio> <png-dir>
 `merge.mjs` reads `<repo-root>/docs/architecture/classes.config.json` when no `--config` is given.
 `check.mjs` reads `classes.config.json` next to the `.drawio` file when no config is given, for the stereotypes of `stereotypeFor`.
 For a diagram at `docs/architecture/classes.drawio`, that is the same file that `merge.mjs` reads.
+`merge.mjs` prints one `warning:` line on stderr for each route of `app/` that no folder of the config holds. A view box of that route stays a planned type, and the warning does not change the exit code.
 `gen.mjs` prints one `warning:` line on stderr for each page, group or type of the layout file that the model does not have, and exits 0.
 `pin.mjs` prints one `warning:` line on stderr for each box that sits outside its group, and exits 0.
 `merge.mjs` lists the code classes with no operation, and their stereotypes, under «Types with no operation» in `planned-report-<repo>.md`. An interface with no operation keeps «interface» alone, so the list leaves it out.
@@ -155,6 +170,7 @@ The tools use Node built-ins only. The page builder in `page/` is the one except
 | type parameters | a small dashed box at the top right of the class, with bounds and defaults |
 | union, enum | `«enumeration»` and one literal per line; a union takes the word from the model (`merge.mjs`) |
 | type alias | no kind word: the box shows its stereotypes from the model, if any, its name and `= <aliased type>` or its attributes |
+| component | `«component»` from the model, its name and its props as attributes |
 | planned type | dashed border, `«planned»` and its `«Sprint N»` |
 | planned member | its `«Sprint N»`, or `«planned»`, before the member |
 | planned class with no operation | one italic line, `members not designed yet`, in the operation compartment; the tool does not invent members |
@@ -205,7 +221,7 @@ The id of each cell comes from the page id and the type ids or the edge key.
 | (f) | The legend of each page lists exactly the line kinds and box kinds of that page (rule 13). |
 | (g) | The XML parses. |
 | (h) | Every line has a fixed exit, a fixed entry and waypoints, with no diagonal segment. No segment enters a class box, a reference box or a type parameter box, except the two boxes that the line joins. |
-| (i) | A class or interface box with no operation says why. A planned box shows `members not designed yet`. A code class box shows `«dataType»` or a stereotype of the `stereotypeFor` map of the config. A code interface box shows `«interface»`, or `«port»` when it is a port. Any other class or interface with no operation is a violation. Types, unions, enums and consts are exempt. |
+| (i) | A class or interface box with no operation says why. A planned box shows `members not designed yet`. A code class box shows `«dataType»` or a stereotype of the `stereotypeFor` map of the config. A code interface box shows `«interface»`, or `«port»` when it is a port. Any other class or interface with no operation is a violation. Types, unions, enums, consts and components are exempt. |
 
 `fixtures/mini.model.json` is a small model with all four layers, two parts and every edge kind.
 `fixtures/broken.drawio` breaks rule 3, rule 9 and check (h) on purpose: `check.mjs` must fail on it.
