@@ -27,11 +27,27 @@ const M = 48; // Outer margin of the canvas.
 // At that zoom, a label of one line (26 pixels high) shows at the scale LABEL.scale.
 const REF = { w: 1400, h: 800 };
 const LABEL = { h: 26, pad: 20, inset: 8, scale: 0.8 };
+// Each band keeps a label room at its top left for the band label, which is HTML with a fixed size on screen.
+// TAG gives that label as page.css draws it: 600 10.5px IBM Plex Mono, letter spacing 0.14em, padding 4px by 8px, border 1px.
+// A glyph of a monospace font is 0.6em wide, so a character takes 10.5 × (0.6 + 0.14) pixels.
+// The page puts the label 16 pixels right of the band edge. The room aims at a gap of 8 pixels around the label at the fit zoom.
+// The last pass can make the canvas a little larger, so the final gap can be smaller. The page keeps a gap of 4 pixels or shrinks the label.
+const TAG = { h: 20.5, ch: 10.5 * (0.6 + 0.14), side: 18, left: 16, gap: 8 };
+// LAYER_NAMES gives the band names of the page: the Clean name of the layer, then the name of its source folder.
+// The build gives this map to the page, so the label and its room use one text.
+export const LAYER_NAMES = {
+  1: 'Entities / Domain',
+  2: 'Use cases / Application',
+  3: 'Interface adapters / Adapters',
+  4: 'Frameworks and drivers / Infrastructure',
+};
+export const bandLabel = (layer) => 'Layer ' + layer + ' · ' + LAYER_NAMES[layer];
 // Frame names of the boxes that have no home view of their own.
 const NO_VIEW = 'in no view';
 const OTHER_VIEWS = 'other views';
 
 const snap = (v, s = 4) => Math.round(v / s) * s;
+const snapUp = (v, s = 4) => Math.ceil(v / s) * s;
 // labelW gives the width of the label room that shows the name of a zone at the reference zoom.
 // The zone name is 600 15px IBM Plex Sans. The glyph table holds 12px widths, so the width scales by 15/12.
 const labelW = (name, kRef) => snap((nameWidth(name, false) * 15 / 12 + LABEL.pad) * LABEL.scale / kRef + 2 * LABEL.inset);
@@ -190,18 +206,19 @@ export async function layoutModel(model) {
 
     // 2. Bands: pack the groups of each band into rows of one common width.
     // Each layer gets a band, layer 4 at the top.
+    // top is the top padding of each band. It holds the band label room.
     const layers = [4, 3, 2, 1];
     const bandsOf = (layer) => groups.filter((g) => g.layer === layer);
-    function packBands() {
+    function packBands(top) {
       const order = new Map(layers.map((l) => [l, bandsOf(l)]));
       const placeAll = (inner) => {
-        const out = { bands: [] };
+        const out = { bands: [], top };
         let y = 0;
         for (const layer of layers) {
           const gs = order.get(layer);
           const pk = shelf(gs, inner, GAP.group, GAP.group, true);
-          const h = pk.h + PAD.band.top + PAD.band.bottom;
-          gs.forEach((g, i) => { g.x = PAD.band.side + pk.at[i][0]; g.y = y + PAD.band.top + pk.at[i][1]; });
+          const h = pk.h + top + PAD.band.bottom;
+          gs.forEach((g, i) => { g.x = PAD.band.side + pk.at[i][0]; g.y = y + top + pk.at[i][1]; });
           out.bands.push({ layer, x: 0, y, w: inner + 2 * PAD.band.side, h });
           y += h + GAP.band;
         }
@@ -268,12 +285,14 @@ export async function layoutModel(model) {
 
     // The label rooms depend on the fit zoom, and the fit zoom depends on the size of the canvas.
     // Three passes bring the label rooms close to a fixed point. Each pass gives the same result for the same model.
-    let strip = 0, kRef = 1, placed = null;
+    // The top padding of a band grows when the band label and its gaps need more height at the fit zoom.
+    let strip = 0, kRef = 1, bandTop = PAD.band.top, placed = null;
     for (let pass = 0; pass < 3; pass++) {
       for (const g of groups) shapeGroup(g, strip, kRef);
-      placed = packBands();
+      placed = packBands(bandTop);
       kRef = Math.min(REF.w / (placed.w + 2 * M), REF.h / (placed.h + 2 * M));
       strip = snap(LABEL.h * LABEL.scale / kRef + 2 * LABEL.inset);
+      bandTop = Math.max(PAD.band.top, snapUp((TAG.h + 2 * TAG.gap) / kRef));
     }
 
     // 3. Absolute boxes and frames.
@@ -295,7 +314,13 @@ export async function layoutModel(model) {
         boxes[id] = [gx + g.ox + x, gy + g.top + y, w, h];
       }
     }
-    const bands = placed.bands.map((b) => ({ ...b, x: M + b.x, y: M + b.y }));
+    // A band carries its label room `lb`: [x, y, w, h] at its top left corner.
+    // The room is as high as the top padding of the band, so no group frame of the band overlaps it.
+    // It is as wide as the band label at the fit zoom, with the left offset and a gap.
+    const bands = placed.bands.map((b) => {
+      const w = Math.min(b.w, snapUp((TAG.left + bandLabel(b.layer).length * TAG.ch + TAG.side + TAG.gap) / kRef));
+      return { ...b, x: M + b.x, y: M + b.y, lb: [M + b.x, M + b.y, w, placed.top] };
+    });
     const W = snap(placed.w + 2 * M, G), H = snap(placed.h + 2 * M, G);
     const groupFrames = frames.filter((f) => f.kind === 'g');
 

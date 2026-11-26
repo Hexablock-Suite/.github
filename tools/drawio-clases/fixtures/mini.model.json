@@ -9,6 +9,10 @@
     {
       "id": "shell",
       "title": "Shell"
+    },
+    {
+      "id": "infrastructure",
+      "title": "Infrastructure"
     }
   ],
   "types": [
@@ -21,7 +25,7 @@
       "sprint": null,
       "stereotypes": [],
       "layer": 4,
-      "part": "shell",
+      "part": "infrastructure",
       "file": "src/infrastructure/web-server.ts",
       "line": 3,
       "typeParams": [],
@@ -71,7 +75,7 @@
       "sprint": null,
       "stereotypes": [],
       "layer": 4,
-      "part": "shell",
+      "part": "infrastructure",
       "file": null,
       "line": null,
       "typeParams": [],

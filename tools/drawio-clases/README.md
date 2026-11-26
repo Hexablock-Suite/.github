@@ -108,6 +108,7 @@ The tools use Node built-ins only. The page builder in `page/` is the one except
 ## Pages
 
 - Page 1, «All classes», has a band for each layer: layer 4 at the top, layer 1 at the bottom, so every dependency points down.
+  Each band title gives the Clean name of its layer, then the name of its source folder: `LAYER 1 · ENTITIES / DOMAIN`, `LAYER 2 · USE CASES / APPLICATION`, `LAYER 3 · INTERFACE ADAPTERS / ADAPTERS` and `LAYER 4 · FRAMEWORKS AND DRIVERS / INFRASTRUCTURE`.
   A band groups its types by part, then by source folder. A planned type sits in the group «<part> · planned».
   A group has a thin border and its label at the top left.
 - A group with 12 boxes or more is large. A large group, and a group alone in its band, takes the full width of the band.
@@ -206,11 +207,11 @@ The id of each cell comes from the page id and the type ids or the edge key.
 | (d) | Each part page is a subset of page 1: the same boxes, and only lines that page 1 draws. It shows every line between the types it shows. A reference box names the page that details it. |
 | (e) | Every operation shows parentheses, a type for each parameter and a return type. A constructor has no return type (rule 5). |
 | (f) | The legend of each page lists exactly the line kinds and box kinds of that page (rule 13). |
-| (g) | The XML parses. |
+| (g) | The XML parses. No cell id appears twice on one page, because draw.io expects one cell for each id inside one page. A part with planned types in two layers gives two planned groups with one cell id, so (g) fails on it. |
 | (h) | Every line has a fixed exit, a fixed entry and waypoints, with no diagonal segment. No segment enters a class box, a reference box or a type parameter box, except the two boxes that the line joins. |
 | (i) | A class or interface box with no operation says why. A planned box shows `members not designed yet`. A code class box shows `«dataType»` or a stereotype of the `stereotypeFor` map of the config. A code interface box shows `«interface»`, or `«port»` when it is a port. Any other class or interface with no operation is a violation. Types, unions, enums and consts are exempt. |
 
-`fixtures/mini.model.json` is a small model with all four layers, two parts and every edge kind.
+`fixtures/mini.model.json` is a small model with all four layers, three parts and every edge kind.
 `fixtures/broken.drawio` breaks rule 3, rule 9 and check (h) on purpose: `check.mjs` must fail on it.
 `fixtures/mini.expected.drawio` holds the bytes that `gen.mjs` writes for `fixtures/mini.model.json` with no layout file.
 
@@ -276,6 +277,8 @@ For each page it reports the labels larger than their box, the line labels on a 
 The page is a clickable class diagram for the browser. It shows one repository at a time, and a switch in the tool bar loads the other one.
 It reads only the model of `MODEL.md`, the model that `gen.mjs` draws. It never reads source code, so it never contradicts `classes.drawio`.
 It has the four layer bands with layer 4 at the top, the folder frames, the view frames inside a large folder, the planned zones, two box densities and three zoom levels.
+Each band label gives the Clean name of its layer, then the name of its source folder: `Layer 1 · Entities / Domain`, `Layer 2 · Use cases / Application`, `Layer 3 · Interface adapters / Adapters` and `Layer 4 · Frameworks and drivers / Infrastructure`.
+The layer chip of the side panel and the layer tab of the highlight menu show the same names. The names live in `LAYER_NAMES` of `page/layout.mjs`, and the build gives them to the page.
 A click on a class chooses it: its lines and its neighbors stay, each neighbor gets a `dependent` or `dependency` tab, and a side panel lists its members, its views and its relations.
 The panel names a diamond by its kind and its label, for example `aggregation · decorate 1`.
 The search finds a class by name or stereotype, the highlight menu lights a stereotype, a view, a layer or a pattern, and a link such as `#app-GameEngine` opens one class.
@@ -301,6 +304,13 @@ The builder packs the frames, the groups and the bands itself, and routes the st
 - Each folder frame and each zone frame keeps a label room at the top. The far label of the zone lives in that room, so it covers no box and no other label.
   The room is as high as a label of one line at 0.8 of its size, at the fit zoom of a 1440 by 900 window. The packer runs three times, because the fit zoom depends on the size of the canvas.
   On screen, a label keeps its size while its room holds it, then shrinks to 0.6 of its size, then hides. It moves right, inside its room, past a band label.
+- Each band keeps a label room at its top left for the band label. The room is as high as the top padding of the band, so no folder frame of the band overlaps it.
+  The top padding aims to hold the band label with a gap of 8 pixels above and below, at the fit zoom of a 1440 by 900 window. The padding is 168 units or more. The same three passes of the packer give it.
+  The last pass can make the canvas a little larger, so the gap at the final fit zoom can be smaller. On the App model it is about 5 pixels.
+  The room is as wide as the band label text at that zoom, with its left offset of 16 pixels and a gap.
+  On screen, the band label sits in the middle of the height of its room and keeps a gap of 4 pixels or more to its edges.
+  When the room is too small for that, for example below the fit zoom, the label shrinks to fit the room, down to 0.6 of its size, and then hides.
+  On the far map, a band label also sticks to the top left of the visible part of its band.
 - The `implements` lines into one type enter it on one side and meet in one port, so they share one trunk. The `extends` lines do the same.
   The side is the one that most of these lines would take.
 - A step beside a line to another target, one track away, costs more than two bends. So long parallel lines keep two tracks apart.
@@ -335,6 +345,7 @@ The build writes a static site into `<site>`:
 
 In the positions file, each line has the edge index `i`, its kind `k`, its points `p` and its label point `lb`. A line between two zones has `zx: 1`.
 Each folder frame and each zone frame has its label room `lb` as `[x, y, w, h]`. A zone frame has `zone: 1` and the ids of its boxes in `ids`.
+Each band has the label room `lb` of its band label as `[x, y, w, h]`, at the top left corner of the band.
 
 The page loads the two data files of a repository with a relative `fetch`.
 The repository switch has one button per model, in the order of the arguments, and the first model opens by default.

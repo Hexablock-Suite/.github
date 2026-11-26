@@ -17,8 +17,13 @@ This file is the contract between those scripts. Change it before you change the
 
 | Repository | Part ids, in page order |
 |---|---|
-| `hexablock-app` | `engine`, `variants`, `usecases`, `adapters` |
-| `hexablock-api` | `domain`, `usecases`, `adapters` |
+| `hexablock-app` | `engine`, `variants`, `usecases`, `adapters`, `infrastructure` |
+| `hexablock-api` | `domain`, `usecases`, `adapters`, `infrastructure` |
+
+The part `adapters` holds layer 3 (`src/adapters/`). The part `infrastructure` holds layer 4 (`src/infrastructure/`).
+A part should hold the types of one layer.
+A part over two layers can put its planned group `<part>|planned` in two bands of page 1. On another part page, it can put its reference group `ref|<part>` in two bands.
+These two groups then get one cell id, and check (g) of `check.mjs` fails.
 
 ## Type
 
