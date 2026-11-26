@@ -375,3 +375,22 @@ test('S2b: the implements lines into one interface end at one point, so they sha
     assert.deepEqual([...new Set(ends)], [ends[0]], `${density}: ${ends.join(' ')}`);
   }
 });
+
+test('#6: each band has a label room at its top left, and no group frame of the band overlaps it', () => {
+  for (const { repo, pos } of fixtureSites()) {
+    for (const density of ['compact', 'full']) {
+      const P = pos[density];
+      assert.deepEqual(P.bands.map((b) => b.layer), [4, 3, 2, 1], `${repo} ${density}`);
+      for (const b of P.bands) {
+        const where = `${repo} ${density} band ${b.layer}`;
+        assert.ok(Array.isArray(b.lb) && b.lb.length === 4, `${where}: no label room`);
+        const [x, y, w, h] = b.lb;
+        // The room starts at the top left corner of the band, lies inside the band and holds at least one line of text.
+        assert.ok(x === b.x && y === b.y && x + w <= b.x + b.w && y + h <= b.y + b.h && w > 0 && h >= 40, `${where}: ${b.lb}`);
+        for (const f of P.frames.filter((fr) => fr.kind === 'g' && fr.layer === b.layer)) {
+          assert.ok(gapOf({ x, y, w, h }, f) >= 0, `${where}: the folder ${f.title} overlaps the room ${b.lb}`);
+        }
+      }
+    }
+  }
+});

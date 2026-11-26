@@ -171,7 +171,8 @@ test('previous behavior: merge.mjs --check and check.mjs keep their exit codes a
   assert.match(m.stdout, /fixtures\/model-bad\.json: 2 violation\(s\)/);
   const broken = run('check.mjs', ['fixtures/broken.drawio', 'fixtures/mini.model.json']);
   assert.equal(broken.status, 1);
-  assert.match(broken.stdout, /39 violation\(s\) in fixtures\/broken\.drawio/);
+  // The mini model has three parts. broken.drawio has no page for the part infrastructure, so check (d) counts one violation for it.
+  assert.match(broken.stdout, /40 violation\(s\) in fixtures\/broken\.drawio/);
   // A code class with no operation needs a stereotype of the config (check (i)).
   const model = JSON.parse(readFileSync(MINI, 'utf8'));
   const server = model.types.find((t) => t.id === 'WebServer');
@@ -416,4 +417,34 @@ test('previous behavior: an enum prints «enumeration», and a class with no ope
   const { out } = notationModel();
   assert.deepEqual(headOf(out, 'Color'), ['«enumeration»', 'Color']);
   assert.deepEqual(headOf(out, 'MoveDto'), ['«dataType»', 'MoveDto']);
+});
+
+test('#6: each band of page 1 names its Clean layer and its source folder', () => {
+  const { out } = generate();
+  const { page } = page1(out);
+  const bands = [...page.cells.values()].filter((c) => c.data.role === 'band').map((c) => [c.data.layer, labelText(c.label)]);
+  assert.deepEqual(bands, [
+    ['4', 'LAYER 4 · FRAMEWORKS AND DRIVERS / INFRASTRUCTURE'],
+    ['3', 'LAYER 3 · INTERFACE ADAPTERS / ADAPTERS'],
+    ['2', 'LAYER 2 · USE CASES / APPLICATION'],
+    ['1', 'LAYER 1 · ENTITIES / DOMAIN'],
+  ]);
+});
+
+test('#6: check (g) fails on a cell id that appears twice on one page, and accepts one id on two pages', () => {
+  const { out } = generate();
+  const xml = readFileSync(out, 'utf8');
+  // Every page has the cells 0 and 1, so the same id on two pages is the normal case.
+  assert.ok(xml.split('<mxCell id="0"/>').length > 2, 'the file has one page only');
+  const ok = run('check.mjs', [out, MINI]);
+  assert.equal(ok.status, 0, ok.stdout);
+  // A part over two layers gave its planned group one id in two bands. A copy of a group cell gives the same fault.
+  const id = groupCell('core|planned');
+  const cell = xml.split('\n').find((l) => l.includes(`<object id="${id}"`));
+  assert.ok(cell, id);
+  const twice = tmp('twice.drawio');
+  writeFileSync(twice, xml.replace(cell, `${cell}\n${cell}`));
+  const r = run('check.mjs', [twice, MINI]);
+  assert.equal(r.status, 1, r.stdout);
+  assert.deepEqual(lines(r.stdout), [`[g] page "All classes" has 2 cells with the id "${id}"`, `1 violation(s) in ${twice}`]);
 });
