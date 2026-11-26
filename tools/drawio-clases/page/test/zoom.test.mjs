@@ -3,19 +3,17 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createServer } from 'node:http';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findChrome, launch } from '../cdp.mjs';
+import { findChrome, launch, serve } from '../cdp.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MINI = path.join(DIR, '..', 'fixtures', 'mini.model.json');
-const SCENARIOS = path.join(DIR, '..', 'fixtures', 'mini.scenarios.json');
 const SCENARIO_REPO = path.join(DIR, '..', 'fixtures', 'mini-repo');
+const SCENARIOS = path.join(SCENARIO_REPO, 'docs', 'architecture', 'scenarios.json');
 const skip = findChrome() ? false : 'no Chromium on this machine';
-const TYPES = { '.html': 'text/html; charset=utf-8', '.json': 'application/json' };
 
 // wideModel has 960 classes: eight folders of 30 classes in each layer. Chains of extends make each folder tall.
 // Its canvas is about as large as the canvas of the App model, so the fit zoom of a 1440 by 900 window is under 0.1.
@@ -59,15 +57,8 @@ before(async () => {
   const r = spawnSync(process.execPath, [path.join(DIR, 'build.mjs'), mini, wide, '--out', scratch], { cwd: DIR, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   // The page reads its data files with fetch, and Chromium allows no fetch from a file URL.
-  server = createServer((req, res) => {
-    const name = req.url.split(/[?#]/)[0].slice(1) || 'index.html';
-    const file = path.join(scratch, path.basename(name));
-    if (!existsSync(file)) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream' });
-    res.end(readFileSync(file));
-  });
-  await new Promise((done) => server.listen(0, '127.0.0.1', done));
-  base = `http://127.0.0.1:${server.address().port}/`;
+  server = await serve(scratch);
+  base = server.base;
   browser = await launch();
   page = await browser.page();
   await page.viewport(1200, 800);

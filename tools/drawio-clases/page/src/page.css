@@ -291,6 +291,10 @@ h1 { font-family: var(--font-serif); font-weight: 400; font-size: 1.75rem; line-
 #cv.has-sc .e.sc-add .ln, #cv.has-sc .e.sc-add .hd { stroke: var(--focal); stroke-width: 1.9; opacity: 1; }
 .mk rect { fill: var(--focal); stroke: var(--focal); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .mk text { font: 600 8px var(--font-mono); letter-spacing: .08em; text-anchor: middle; fill: var(--focal-fg); }
+/* export.mjs adds the class export before it takes the image of a scenario.
+   The image keeps the diagram, the side panel and the whole legend. It hides the controls and the legend lines about a choice or a highlight. */
+.export .bar, .export .zoom, .export #p-close, .export .legend .lg-act { display: none; }
+.export .legend ul { max-height: none; }
 .hl-chip { position: absolute; top: 12px; left: 50%; translate: -50% 0; z-index: 4; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 32px);
   background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 8px 22px -14px var(--shadow); padding: 4px 4px 4px 12px; font-size: 13px; }
 .hl-chip[hidden] { display: none; }

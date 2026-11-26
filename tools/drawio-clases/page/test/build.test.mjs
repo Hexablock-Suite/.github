@@ -11,15 +11,12 @@ import { checkGeometry, routedCount } from '../geom.mjs';
 import { boxText } from '../text.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const SCENARIOS = path.join(DIR, '..', 'fixtures', 'mini.scenarios.json');
 const SCENARIO_REPO = path.join(DIR, '..', 'fixtures', 'mini-repo');
+const SCENARIOS = path.join(SCENARIO_REPO, 'docs', 'architecture', 'scenarios.json');
 const scratch = mkdtempSync(path.join(tmpdir(), 'drawio-clases-page-test-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
-// The build reads the scenario file next to a model. The fixture folder also holds the source scenario file of scenarios.mjs.
-// So the tests build a copy of the mini model, in a folder of its own.
-const MINI = path.join(scratch, 'mini', 'mini.model.json');
-mkdirSync(path.dirname(MINI));
-copyFileSync(path.join(DIR, '..', 'fixtures', 'mini.model.json'), MINI);
+// The fixture folder holds no scenario file next to the mini model, so the build reads the model in place.
+const MINI = path.join(DIR, '..', 'fixtures', 'mini.model.json');
 
 let seq = 0;
 const tmp = (name) => {

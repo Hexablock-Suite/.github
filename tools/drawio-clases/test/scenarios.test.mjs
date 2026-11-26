@@ -11,8 +11,8 @@ import { placeFile } from '../merge.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MINI = path.join(DIR, 'fixtures', 'mini.model.json');
-const SCENARIOS = path.join(DIR, 'fixtures', 'mini.scenarios.json');
 const REPO = path.join(DIR, 'fixtures', 'mini-repo');
+const SCENARIOS = path.join(REPO, 'docs', 'architecture', 'scenarios.json');
 const scratch = mkdtempSync(path.join(tmpdir(), 'drawio-clases-scenarios-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
 

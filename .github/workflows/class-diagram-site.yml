@@ -75,6 +75,12 @@ jobs:
         run: |
           npm ci --ignore-scripts
           node build.mjs "$RUNNER_TEMP/models/hexablock-api.model.json" "$RUNNER_TEMP/models/hexablock-app.model.json" --out "$RUNNER_TEMP/site"
+      # export.mjs writes one image per scenario into the site: scenarios/<repo key>-<scenario id>.png.
+      # It drives the Chromium of the runner, headless, with a throwaway profile. The tests of the page job find the same browser.
+      # With no scenario file in either product, it needs no browser, writes nothing and ends with exit 0.
+      - name: Export the scenario images
+        working-directory: tool/tools/drawio-clases/page
+        run: node export.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/site/scenarios"
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: ${{ runner.temp }}/site

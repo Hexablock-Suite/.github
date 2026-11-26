@@ -885,6 +885,35 @@
     app.classList.add('has-sheet');
   }
 
+  // ---------- export ----------
+  // export.mjs calls exportScenario through the DevTools protocol before it takes the image of the shown scenario.
+  // The class export hides the tool bar, the zoom buttons and the legend lines about a choice or a highlight.
+  // The image keeps the diagram, the side panel with the scenario title, and the open legend.
+  // The view fits the groups that the scenario touches, in the larger free room: beside the legend or above it.
+  // A resize keeps that view. export.mjs calls exportScenario again after it changes the window size.
+  // exportScenario gives the title of the shown scenario and the fit zoom, or null with no scenario.
+  function exportScenario() {
+    if (!scen) return null;
+    app.classList.add('export');
+    $('#legend').open = true;
+    const points = new Set(scen.extensionPoints), kept = new Set(scen.unchanged), files = new Set(scen.edits.map((e) => e.file));
+    const rects = model.types.filter((t) => points.has(t.id) || kept.has(t.id) || t.added || files.has(t.file))
+      .map((t) => P.frames.find((f) => f.kind === 'g' && f.layer + '|' + f.title === groupKey(t)) || rectOf(t.id));
+    // A scenario that names no type fits the whole canvas.
+    if (!rects.length) rects.push({ x: 0, y: 0, w: P.w, h: P.h });
+    const x0 = Math.min(...rects.map((r) => r.x)), y0 = Math.min(...rects.map((r) => r.y));
+    const r = { x: x0, y: y0, w: Math.max(...rects.map((q) => q.x + q.w)) - x0, h: Math.max(...rects.map((q) => q.y + q.h)) - y0 };
+    const v = view(), st = stage.getBoundingClientRect(), lg = $('#legend').getBoundingClientRect(), m = 24;
+    const rooms = [
+      { x: lg.right - st.left, y: 0, w: v.w - (lg.right - st.left), h: v.h },
+      { x: 0, y: 0, w: v.w, h: lg.top - st.top },
+    ].map((o) => ({ ...o, k: Math.min(1.25, clampK(Math.min((o.w - 2 * m) / r.w, (o.h - 2 * m) / r.h))) }));
+    const o = rooms[0].k >= rooms[1].k ? rooms[0] : rooms[1];
+    moveTo(o.k, o.x + o.w / 2 - (r.x + r.w / 2) * o.k, o.y + o.h / 2 - (r.y + r.h / 2) * o.k, false);
+    return { title: scen.title, k: o.k };
+  }
+  window.exportScenario = exportScenario;
+
   // ---------- menus ----------
   const menus = [['#hl-btn', '#hl-menu'], ['#ln-btn', '#ln-menu']].map(([b, m]) => ({ b: $(b), m: $(m) }));
   function closeMenus(focus) {
@@ -1158,11 +1187,12 @@
       h += li(LG.view, 'A large folder shows each view as a zone. From far away, a zone shows no line to another zone. Zoom in to see those lines.');
     }
     h += li(LG.ghost, 'Ghost line, at the middle zoom: a line between two zones or two folders. It takes full ink for a chosen, hovered or highlighted end.', 'lg-ghost');
-    h += li(LG.sel, 'Chosen class.');
-    h += li(LG.dpt, 'Dependent tab. This class depends on the chosen class.');
-    h += li(LG.dep, 'Dependency tab. The chosen class depends on this class.');
-    h += li(LG.lit, 'Highlighted type. It has a thick border, and the rest fades.');
-    h += '<li>With a chosen class, its relations show. The thick border still marks the highlighted set.</li>';
+    // The lines of the class lg-act tell what a choice or a highlight shows. The image of a scenario hides them.
+    h += li(LG.sel, 'Chosen class.', 'lg-act');
+    h += li(LG.dpt, 'Dependent tab. This class depends on the chosen class.', 'lg-act');
+    h += li(LG.dep, 'Dependency tab. The chosen class depends on this class.', 'lg-act');
+    h += li(LG.lit, 'Highlighted type. It has a thick border, and the rest fades.', 'lg-act');
+    h += '<li class="lg-act">With a chosen class, its relations show. The thick border still marks the highlighted set.</li>';
     if (scen) {
       h += li(LG.lit, 'Extension point of the scenario. It has a thick border.', 'sep');
       h += li(LG.add, 'Box that the scenario adds. Dashed border, with its line to the type that it implements or extends.');
@@ -1332,7 +1362,7 @@
 
   // ---------- start ----------
   let resizeTimer = 0;
-  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!sel && model) fit(false); }, 120); });
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!sel && model && !app.classList.contains('export')) fit(false); }, 120); });
   window.addEventListener('hashchange', () => {
     const h = readHash();
     if (!h) return;
