@@ -497,7 +497,7 @@ const INTERFACE_WORDS = ['interface', 'port'];
 // checkOps runs check (e) and check (i) on one full class box.
 // It returns the legend box kinds that the box draws: 'undesigned' and each data stereotype it shows.
 function checkOps(cell, t, where, say, dataStereotypes) {
-  if (!['class', 'interface', 'type', 'const'].includes(t.kind)) return [];
+  if (!['class', 'interface', 'type', 'const', 'component'].includes(t.kind)) return [];
   const compartments = cell.label.split(/<hr\b[^>]*>/i);
   const head = labelText(compartments[0]);
   const marks = dataStereotypes.filter((m) => head.includes(`«${m}»`));
