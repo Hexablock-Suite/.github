@@ -9,8 +9,8 @@
 // It also writes <out-dir>/planned-report-<repo>.md with the planned types, the planned members,
 // the unresolved view lines and the view types without a layer.
 // The default config is <repo-root>/docs/architecture/classes.config.json. It maps folders and views to layers and parts.
-// The first form prints one `warning:` line on stderr for each route of app/ that no folder of the config holds.
-// A view box of that route stays a planned type, and the warning does not change the exit code.
+// The first form prints one `warning:` line on stderr for each exported or drawn declaration of app/ that no folder
+// of the config holds. A view box of its name stays a planned type, and the warning does not change the exit code.
 // The second form checks one model against the five invariants of MODEL.md.
 // It prints each violation on one line and exits 1 when it finds one.
 
@@ -158,9 +158,15 @@ export function merge(code, views, cfg) {
 
   // A lollipop draws an interface by name. An interface that no box and no code type has becomes a
   // planned interface in the layer of the box under the stick.
-  // A route of app/ that no folder holds is no code type name. A view that draws it keeps it planned.
-  const isHomelessRoute = (t) => t.kind === 'component' && t.file.startsWith('app/') && !placeFile(t.file);
-  const codeTypeNames = new Set(code.types.filter((t) => !isHomelessRoute(t)).map((t) => t.name));
+  // A declaration of app/ that no folder holds is homeless. A product config can lack the app/ folder.
+  // A homeless declaration is no code type name, so a view box of its name stays planned.
+  // Each exported or drawn one gives a warning, and the warning does not fail the run.
+  // A private declaration that no view draws never enters the model, so it gives no warning.
+  const isHomeless = (t) => t.file.startsWith('app/') && !placeFile(t.file);
+  for (const t of code.types.filter((x) => isHomeless(x) && (x.exported || drawn.has(x.name)))) {
+    notes.warnings.push(`${t.id} (${t.file}): no folder of the config holds this declaration of app/; a view box of its name stays planned`);
+  }
+  const codeTypeNames = new Set(code.types.filter((t) => !isHomeless(t)).map((t) => t.name));
   const lollipopOnly = new Set();
   for (const v of viewOrder) {
     for (const l of v.lines) {
@@ -218,10 +224,6 @@ export function merge(code, views, cfg) {
     const place = placeFile(t.file);
     if (!place) {
       notes.unplaced.push(`${t.id} (${t.file}): no folder of the config holds it`);
-      // A route of app/ with no folder gives a warning, not a failure. A product config can lack the app/ folder.
-      if (isHomelessRoute(t)) {
-        notes.warnings.push(`${t.id} (${t.file}): no folder of the config holds this route; its view box stays planned`);
-      }
       continue;
     }
     const type = {
@@ -349,8 +351,8 @@ export function merge(code, views, cfg) {
     if (!pairs.has(key)) pairs.set(key, { from, to, codeHeritage: null, codeUse: null, viewHeritage: [], viewAssoc: [] });
     return pairs.get(key);
   };
-  // A code line of a route with no folder is dropped: the planned type of its name takes only the view lines.
-  const homeless = new Set(code.types.filter(isHomelessRoute).map((t) => t.id));
+  // A code line of a homeless declaration is dropped: the planned type of its name takes only the view lines.
+  const homeless = new Set(code.types.filter(isHomeless).map((t) => t.id));
   for (const e of code.edges) {
     if (!byId.has(e.from) || !byId.has(e.to) || homeless.has(e.from) || homeless.has(e.to)) continue;
     const p = pairOf(e.from, e.to);

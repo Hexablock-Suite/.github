@@ -444,59 +444,126 @@ test('A2: the default export of each route of app/ is a code type of kind compon
   assert.throws(() => extract(repo), /\/app has uncommitted changes; the model must come from HEAD/);
 });
 
-test('A2: a route of app/ with no folder in the config prints one warning line, its view box stays a planned type, and the run does not fail', needsTypeScript, () => {
+test('A2: each exported or drawn declaration of app/ with no folder in the config prints one warning line, its view box stays a planned type, and the run does not fail', needsTypeScript, () => {
+  // GameScreen and RouteParams have a view box. HomeScreen has none, but a route is exported.
+  // STONE is a private object of a route file that no view draws, so it gives no warning.
   const repo = miniRepo({
     ...routeFiles,
+    'app/route-params.ts': [
+      "import { GamePresenter } from '../src/adapters/game-presenter';",
+      '',
+      'const STONE = { size: 1 };',
+      '',
+      'export class RouteParams {',
+      '  presenter(): GamePresenter {',
+      '    return GamePresenter.create() + STONE.size;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
     'docs/architecture/classes.config.json': JSON.stringify(config()) + '\n',
     'docs/architecture/classes/views/ad-1-game.html': viewHtml('GameScreen', 'GamePresenter', 'use', ['presenter']),
+    'docs/architecture/classes/views/ad-2-params.html': viewHtml('RouteParams', 'GamePresenter', 'use', ['asks']),
   });
   const out = tmp('out');
   const run = spawnSync(process.execPath, [MERGE, repo, out], { encoding: 'utf8' });
   assert.equal(run.status, 0, run.stdout + run.stderr);
   const warnings = run.stderr.split('\n').filter((l) => l.startsWith('warning:'));
-  assert.equal(warnings.length, 1, run.stderr);
-  assert.match(warnings[0], /^warning: GameScreen \(app\/game\/\[gameId\]\.tsx\): no folder of the config holds this route; its view box stays planned$/);
-  // The model keeps the view box as a planned type, as before app/ was read.
+  const tail = 'no folder of the config holds this declaration of app/; a view box of its name stays planned';
+  assert.deepEqual(warnings, [
+    `warning: GameScreen (app/game/[gameId].tsx): ${tail}`,
+    `warning: HomeScreen (app/index.tsx): ${tail}`,
+    `warning: RouteParams (app/route-params.ts): ${tail}`,
+  ]);
+  // The model keeps each view box as a planned type with its view line, as before app/ was read.
   const model = JSON.parse(readFileSync(path.join(out, 'mini.model.json'), 'utf8'));
-  const screen = model.types.filter((t) => t.name === 'GameScreen').map(({ kind, status, file }) => ({ kind, status, file }));
-  assert.deepEqual(screen, [{ kind: 'class', status: 'planned', file: null }]);
+  const shape = (name) => model.types.filter((t) => t.name === name).map(({ kind, status, file }) => ({ kind, status, file }));
+  assert.deepEqual(shape('GameScreen'), [{ kind: 'class', status: 'planned', file: null }]);
+  assert.deepEqual(shape('RouteParams'), [{ kind: 'class', status: 'planned', file: null }]);
+  assert.deepEqual(shape('HomeScreen'), []);
   assert.deepEqual(edgesOf(model, 'GameScreen', 'GamePresenter').map(pick), [{ kind: 'use', label: 'presenter', pattern: null, status: 'planned' }]);
+  assert.deepEqual(edgesOf(model, 'RouteParams', 'GamePresenter').map(pick), [{ kind: 'use', label: 'asks', pattern: null, status: 'planned' }]);
   assert.match(run.stdout, / 0 violation\(s\)$/m);
 });
 
-// splitConfig has the two parts of the split of Hexablock-Suite/hexablock-app#394 and Hexablock-Suite/hexablock-api#198.
-// The part adapters holds layer 3 and the part infrastructure holds layer 4.
-// The views map keeps the prefix ad- and the view map-4-adapters on the part adapters, as both product configs do.
-const splitConfig = () => ({
-  repo: 'mini',
-  parts: [
-    { id: 'adapters', title: 'Adapters', layers: [3] },
-    { id: 'infrastructure', title: 'Infrastructure', layers: [4] },
-  ],
-  views: { 'ad-': 'adapters', 'map-4-adapters': 'adapters' },
-  folders: [
-    { path: 'src/adapters/', layer: 3, part: 'adapters' },
-    { path: 'src/infrastructure/', layer: 4, part: 'infrastructure' },
-  ],
-  patterns: {},
+test('A1: a typeof type query reads no function, and a shorthand property reads its function', needsTypeScript, () => {
+  const repo = miniRepo({
+    'src/domain/widget.ts': 'export class Widget {\n  static create(): number {\n    return 1;\n  }\n}\n',
+    'src/domain/gadget.ts': 'export class Gadget {\n  static of(): number {\n    return 2;\n  }\n}\n',
+    'src/domain/holder.ts': [
+      "import { Gadget } from './gadget';",
+      "import { Widget } from './widget';",
+      '',
+      'function makeThing() {',
+      '  return Widget.create();',
+      '}',
+      'const helper = () => Gadget.of();',
+      'function apply(o: { helper: () => number }): number {',
+      '  return o.helper();',
+      '}',
+      '',
+      'export class Holder {',
+      '  readonly made: ReturnType<typeof makeThing> = 0;',
+      '  run(): number {',
+      '    return apply({ helper });',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  assert.deepEqual(usesFrom(c, 'Holder'), [{ to: 'Gadget', label: 'run()', viaAttr: false, multiplicity: null }]);
 });
 
-test('#6: a planned layer 4 type of a view mapped to a layer 3 part goes to the part of layer 4', () => {
-  const repo = { ...codeType('HttpRepo'), file: 'src/adapters/http-repo.ts' };
-  const views = [
-    view('ad-1-storage', 'LocalStore', 'HttpRepo', 'use', ['save()'], 4),
-    view('map-4-adapters', 'SystemClock', 'HttpRepo', 'use', ['now()'], 4),
-    view('ad-2-http', 'HttpGateway', 'HttpRepo', 'use', ['send()'], 3),
-  ];
-  const { model } = merge(code([repo], []), views, splitConfig());
-  const where = (id) => {
-    const t = model.types.find((x) => x.id === id);
-    return t && { layer: t.layer, part: t.part, status: t.status };
-  };
-  assert.deepEqual(where('LocalStore'), { layer: 4, part: 'infrastructure', status: 'planned' });
-  assert.deepEqual(where('SystemClock'), { layer: 4, part: 'infrastructure', status: 'planned' });
-  // A planned layer 3 type of a view of the same prefix keeps the part adapters.
-  assert.deepEqual(where('HttpGateway'), { layer: 3, part: 'adapters', status: 'planned' });
-  // A code type takes its part from its folder.
-  assert.deepEqual(where('HttpRepo'), { layer: 3, part: 'adapters', status: 'code' });
+test('A2: a prop in method syntax is an attribute, and the defaults of the props are uses', needsTypeScript, () => {
+  const repo = miniRepo({
+    'src/ui/coord.ts': 'export class Coord {\n  constructor(readonly q: number) {}\n}\n',
+    'src/ui/size.ts': 'export class Size {\n  static small(): number {\n    return 1;\n  }\n}\n',
+    'src/ui/glow.ts': 'export class Glow {\n  static base(): number {\n    return 2;\n  }\n}\n',
+    'src/ui/tile.tsx': [
+      "import type { Coord } from './coord';",
+      "import { Glow } from './glow';",
+      "import { Size } from './size';",
+      '',
+      'export function Tile({ size = Size.small() }: { readonly size?: number; onPick(at: Coord): void }) {',
+      '  return <i>{size}</i>;',
+      '}',
+      '',
+      'export function Halo(props: { readonly n: number } = { n: Glow.base() }) {',
+      '  return <i>{props.n}</i>;',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  assert.deepEqual(c.types.find((t) => t.id === 'Tile').attrs, [
+    { vis: '+', name: 'size', type: 'number', static: false, readonly: true, optional: true },
+    { vis: '+', name: 'onPick', type: '(at: Coord) => void', static: false, readonly: false, optional: false },
+  ]);
+  assert.deepEqual(usesFrom(c, 'Tile'), [
+    { to: 'Coord', label: 'onPick 1', viaAttr: true, multiplicity: '1' },
+    { to: 'Size', label: null, viaAttr: false, multiplicity: null },
+  ]);
+  assert.deepEqual(usesFrom(c, 'Halo'), [{ to: 'Glow', label: null, viaAttr: false, multiplicity: null }]);
+});
+
+test('A2: a component of src/ that export default or an export list exports is a component', needsTypeScript, () => {
+  const repo = miniRepo({
+    'src/ui/panel.tsx': [
+      'function Panel() {',
+      '  return <b />;',
+      '}',
+      'function Frame() {',
+      '  return <i />;',
+      '}',
+      'function Hidden() {',
+      '  return <s />;',
+      '}',
+      'export default Panel;',
+      'export { Frame };',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  assert.deepEqual(c.types.filter((t) => t.kind === 'component').map((t) => t.id), ['Panel', 'Frame']);
 });

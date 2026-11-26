@@ -8,8 +8,9 @@
 // type aliases, enums and `const` objects. Test files and declaration files stay out.
 // A function component is a code type of kind `component`. In src/, it is an exported function with a
 // PascalCase name in a .tsx file. In app/, it is the default export of each route file.
-// A use inside a top-level function of the same file counts for the member that calls that function.
-// A JSX tag is a call too. A function of another file stays unread.
+// A use inside a top-level function of the same file counts for the member that names that function:
+// in a call, a JSX tag, or a reference to the function as a value. A `typeof` type query reads no function.
+// A function of another file stays unread.
 // It writes the code half of the class model: the types, their members and the uses between them.
 // `merge.mjs` joins this output with the class views. It also drops the local types, the
 // `const` objects and the components that no view draws.
@@ -103,6 +104,7 @@ export function extract(repoArg) {
 
   // A function component of one file. In app/, the default export of the route is the component.
   // In src/, an exported function with a PascalCase name in a .tsx file is a component.
+  // `exported` also holds for `export default Name;` and `export { Name }`.
   const isComponent = (sf, name, exported, isDefault) =>
     sf.fileName.startsWith(appDir) ? isDefault : exported && sf.fileName.endsWith('.tsx') && isPascal(name);
 
@@ -112,6 +114,14 @@ export function extract(repoArg) {
     // `export default Name;` names the default export after its declaration.
     const named = sf.statements.find((st) => ts.isExportAssignment(st) && !st.isExportEquals && ts.isIdentifier(st.expression));
     const defaultName = named ? named.expression.text : null;
+    // `export { Name }` with no `from` exports a declaration of this file.
+    const listed = new Set(
+      sf.statements
+        .filter((st) => ts.isExportDeclaration(st) && !st.moduleSpecifier && st.exportClause && ts.isNamedExports(st.exportClause))
+        .flatMap((st) => st.exportClause.elements.map((e) => (e.propertyName ?? e.name).text)),
+    );
+    // A component counts as exported through its modifier, `export default Name;` or an export list.
+    const exportedAs = (name, exported) => exported || name === defaultName || listed.has(name);
     for (const st of sf.statements) {
       const exported = hasMod(st, ts.ModifierFlags.Export);
       if (
@@ -121,14 +131,14 @@ export function extract(repoArg) {
         found.push({ node: st, name: st.name.text, exported, sf });
       } else if (ts.isFunctionDeclaration(st) && st.name && st.body) {
         const isDefault = hasMod(st, ts.ModifierFlags.Default) || st.name.text === defaultName;
-        if (isComponent(sf, st.name.text, exported, isDefault)) found.push({ node: st, fn: st, name: st.name.text, exported: true, sf, isComponent: true });
+        if (isComponent(sf, st.name.text, isDefault || exportedAs(st.name.text, exported), isDefault)) found.push({ node: st, fn: st, name: st.name.text, exported: true, sf, isComponent: true });
       } else if (ts.isVariableStatement(st) && st.declarationList.flags & ts.NodeFlags.Const) {
         for (const d of st.declarationList.declarations) {
           if (!ts.isIdentifier(d.name)) continue;
           const obj = objectLiteralOf(d.initializer);
           const fn = obj ? null : functionOf(d.initializer);
           if (obj) found.push({ node: d, obj, name: d.name.text, exported, sf, isConst: true });
-          else if (fn && isComponent(sf, d.name.text, exported, d.name.text === defaultName)) {
+          else if (fn && isComponent(sf, d.name.text, exportedAs(d.name.text, exported), d.name.text === defaultName)) {
             found.push({ node: d, fn, name: d.name.text, exported: true, sf, isComponent: true });
           }
         }
@@ -185,7 +195,8 @@ export function extract(repoArg) {
 
   // Collect the model types that a subtree names. Each hit is { id, isNew }.
   // A type reference, a value identifier, a `new` and the inferred type of a local variable count as uses.
-  // An identifier that names a top-level function of the same file brings the uses of that function.
+  // A call, a JSX tag or a reference as a value to a top-level function of the same file brings the uses of that function.
+  // A `typeof` type query reads no function.
   // The function is not a model type. The walk reads its parameter types, its return type and its body.
   // An imported function stays unread. Each function is read once, so a recursive call stops the walk.
   const refsIn = (node) => {
@@ -193,7 +204,9 @@ export function extract(repoArg) {
     if (!node) return out;
     const read = new Set();
     const follow = (n) => {
-      const sym = checker.getSymbolAtLocation(n);
+      // A shorthand property `{ helper }` names the value `helper`, not the property.
+      const short = ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n;
+      const sym = short ? checker.getShorthandAssignmentValueSymbol(n.parent) : checker.getSymbolAtLocation(n);
       if (!sym || sym.flags & ts.SymbolFlags.Alias) return;
       for (const d of sym.declarations ?? []) {
         const fn = d.getSourceFile() === n.getSourceFile() && !decls.has(d) ? moduleFunctionOf(d) : null;
@@ -210,6 +223,16 @@ export function extract(repoArg) {
     const visit = (n) => {
       if (!n) return;
       if (ts.isDecorator(n)) return; // Module metadata and injection tokens draw no line (rule 12).
+      if (ts.isTypeQueryNode(n)) {
+        // `typeof name` uses a model type that it names, but it calls no function, so the walk reads none.
+        const names = (e) => (ts.isQualifiedName(e) ? [...names(e.left), e.right] : [e]);
+        for (const name of names(n.exprName)) {
+          const id = targetOf(name);
+          if (id) out.push({ id, isNew: false });
+        }
+        (n.typeArguments ?? []).forEach(visit);
+        return;
+      }
       if (ts.isTypeReferenceNode(n)) {
         const id = targetOf(ts.isQualifiedName(n.typeName) ? n.typeName.right : n.typeName);
         if (id) out.push({ id, isNew: false });
@@ -415,16 +438,30 @@ export function extract(repoArg) {
 
   // A function component: each prop of its first parameter is an attribute.
   // Only a prop that the source declares counts, so the props of a library type stay out.
-  // The uses of its parameter types, its return type and its body carry no operation label.
+  // A prop in method syntax is an attribute too.
+  // The uses of its parameter types, its default values, its return type and its body carry no operation label.
   const readComponent = (t, fn) => {
     const props = fn.parameters[0];
     if (props) {
       for (const sym of checker.getTypeAtLocation(props).getProperties()) {
-        const m = sym.declarations?.find((d) => ts.isPropertySignature(d) && isSource(d.getSourceFile().fileName));
-        if (m) attrOf(t, m, m.type ?? null);
+        const m = sym.declarations?.find((d) => (ts.isPropertySignature(d) || ts.isMethodSignature(d)) && isSource(d.getSourceFile().fileName));
+        if (m && ts.isPropertySignature(m)) attrOf(t, m, m.type ?? null);
+        else if (m) {
+          // A prop in method syntax, `onPick(at: Coord): void`, is an attribute of a function type.
+          const name = memberName(m);
+          const optional = !!m.questionToken;
+          t.attrs.push({ vis: '+', name, type: `(${m.parameters.map(paramText).join(', ')}) => ${returnText(m)}`, static: false, readonly: false, optional });
+          const refs = [...new Set([...m.parameters.flatMap((p) => attrRefs(p.type)), ...attrRefs(m.type)])];
+          useAttr(t.id, refs, name, optional ? '0..1' : '1');
+        }
       }
     }
-    for (const p of fn.parameters) useIn(t.id, refsIn(p.type), null);
+    // A default value, in a destructured props pattern or as a parameter initializer, is a use too.
+    for (const p of fn.parameters) {
+      useIn(t.id, refsIn(p.type), null);
+      if (!ts.isIdentifier(p.name)) useIn(t.id, refsIn(p.name), null);
+      useIn(t.id, refsIn(p.initializer), null);
+    }
     useIn(t.id, refsIn(fn.type), null);
     useIn(t.id, refsIn(fn.body), null);
   };

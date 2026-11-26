@@ -448,3 +448,20 @@ test('#6: check (g) fails on a cell id that appears twice on one page, and accep
   assert.equal(r.status, 1, r.stdout);
   assert.deepEqual(lines(r.stdout), [`[g] page "All classes" has 2 cells with the id "${id}"`, `1 violation(s) in ${twice}`]);
 });
+
+test('A2: gen.mjs draws a component with «component» and its props, and check.mjs exempts it from check (i)', () => {
+  const props = [
+    { vis: '+', name: 'layout', type: 'BoardLayout', static: false, readonly: true, optional: false },
+    { vis: '+', name: 'label', type: 'string', static: false, readonly: true, optional: false },
+  ];
+  const { modelFile, out } = notationModel((model) => {
+    const dto = model.types.find((t) => t.id === 'MoveDto');
+    model.types.push({ ...dto, id: 'BoardView', name: 'BoardView', kind: 'component', file: 'src/BoardView.tsx', stereotypes: ['component'], attrs: props, ops: [] });
+  });
+  assert.deepEqual(headOf(out, 'BoardView'), ['«component»', 'BoardView']);
+  const cell = page1(out).page.cells.get('all-classes~type-BoardView');
+  const attrs = labelText(cell.label.split(/<hr\b[^>]*>/i)[1]).split('\n').map((s) => s.trim()).filter(Boolean);
+  assert.deepEqual(attrs, ['+ layout: BoardLayout', '+ label: string']);
+  const c = run('check.mjs', [out, modelFile]);
+  assert.equal(c.status, 0, c.stdout);
+});

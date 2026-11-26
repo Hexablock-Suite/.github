@@ -87,14 +87,14 @@ The layout keeps order only, because a fixed position breaks when a new class ar
 `extract.mjs` reads the `.ts` and `.tsx` files of `src/` and `app/`. Test files (`*.test.ts`, `*.spec.ts`) and declaration files (`*.d.ts`) stay out.
 
 - A top-level class, interface, type alias or enum is a code type. A top-level `const` that holds an object literal is a code type of kind `const`.
-- A function component is a code type of kind `component`. In `src/`, it is an exported function, or an exported `const` that holds a function, with a PascalCase name in a `.tsx` file. In `app/`, it is the default export of each route file, for example `export default function GameScreen()`.
-  Its props are its attributes. Its body gives its uses.
+- A function component is a code type of kind `component`. In `src/`, it is a function, or a `const` that holds a function, with a PascalCase name in a `.tsx` file, that the file exports with `export`, `export default Name;` or `export { Name }`. In `app/`, it is the default export of each route file, for example `export default function GameScreen()`.
+  Its props are its attributes, also a prop in method syntax such as `onPick(at: Coord): void`. Its body and the default values of its props give its uses.
 - A member uses a model type when its types, its `new` calls, its values or the inferred types of its local variables name that type.
-- A use inside a top-level function of the same file counts for the member that calls the function. A JSX tag of a component of the same file is a call too. The tool does not follow a function of another file.
+- A use inside a top-level function of the same file counts for the member that names the function in a call, a JSX tag, or a reference to the function as a value, such as the shorthand property `{ helper }`. A `typeof` type query does not read the function. The tool does not follow a function of another file.
 - `views.mjs` reads the class views. A box or a line that no code type or code use has becomes planned.
 
 `merge.mjs` keeps a `const` or a `component` only when a view draws it. It places each code type by the folders of the config.
-A route of `app/` that no folder holds prints one `warning:` line. It is no code type: a view box of that route stays a planned type, as before the tool read `app/`, and its code lines stay out. It does not fail the run.
+A declaration of `app/` that no folder holds is no code type: a view box of its name stays a planned type, as before the tool read `app/`, and its code lines stay out. Each one that is exported or that a view draws prints one `warning:` line. A route is exported. It does not fail the run.
 
 ## Commands
 
@@ -110,7 +110,7 @@ node render.mjs <out.drawio> <png-dir>
 `merge.mjs` reads `<repo-root>/docs/architecture/classes.config.json` when no `--config` is given.
 `check.mjs` reads `classes.config.json` next to the `.drawio` file when no config is given, for the stereotypes of `stereotypeFor`.
 For a diagram at `docs/architecture/classes.drawio`, that is the same file that `merge.mjs` reads.
-`merge.mjs` prints one `warning:` line on stderr for each route of `app/` that no folder of the config holds. A view box of that route stays a planned type, and the warning does not change the exit code.
+`merge.mjs` prints one `warning:` line on stderr for each declaration of `app/` that no folder of the config holds and that is exported or that a view draws. A view box of its name stays a planned type, and the warning does not change the exit code.
 `gen.mjs` prints one `warning:` line on stderr for each page, group or type of the layout file that the model does not have, and exits 0.
 `pin.mjs` prints one `warning:` line on stderr for each box that sits outside its group, and exits 0.
 `merge.mjs` lists the code classes with no operation, and their stereotypes, under «Types with no operation» in `planned-report-<repo>.md`. An interface with no operation keeps «interface» alone, so the list leaves it out.
