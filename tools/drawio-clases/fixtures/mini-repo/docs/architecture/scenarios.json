@@ -1,0 +1,66 @@
+{
+  "scenarios": [
+    {
+      "id": "square-rules",
+      "title": "A third rule set: Square Rules",
+      "source": "docs/EXTENSIBILITY.md",
+      "extensionPoints": [
+        "Rules",
+        "BaseRules"
+      ],
+      "adds": [
+        {
+          "name": "SquareRules",
+          "kind": "class",
+          "stereotypes": [],
+          "file": "src/domain/rules/square-rules.ts",
+          "extends": "BaseRules"
+        }
+      ],
+      "edits": [
+        {
+          "file": "src/infrastructure/web-server.ts",
+          "change": "one entry in the rules list"
+        }
+      ],
+      "unchanged": [
+        "Engine",
+        "Phase",
+        "PlayGame"
+      ]
+    },
+    {
+      "id": "file-store",
+      "title": "A second store: File Store",
+      "source": "docs/EXTENSIBILITY.md",
+      "extensionPoints": [
+        "GameStore"
+      ],
+      "adds": [
+        {
+          "name": "FileStore",
+          "kind": "class",
+          "stereotypes": [
+            "adapter"
+          ],
+          "file": "src/adapters/file-store.ts",
+          "implements": "GameStore"
+        }
+      ],
+      "edits": [
+        {
+          "file": "src/infrastructure/web-server.ts",
+          "change": "build a FileStore in place of the MemoryStore"
+        },
+        {
+          "file": "src/main.ts",
+          "change": "read the store folder from the environment"
+        }
+      ],
+      "unchanged": [
+        "PlayGame",
+        "UseCase"
+      ]
+    }
+  ]
+}

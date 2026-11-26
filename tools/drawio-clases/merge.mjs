@@ -119,6 +119,19 @@ export function compareEdges(a, b) {
   return cmp(a.from, b.from) || cmp(a.to, b.to) || cmp(a.kind, b.kind);
 }
 
+// Read the config of one repository. Without cfgArg the path is <repo-root>/docs/architecture/classes.config.json.
+export function readConfig(repoRoot, cfgArg = null) {
+  const cfgPath = cfgArg ?? path.join(repoRoot, 'docs', 'architecture', 'classes.config.json');
+  return { cfgPath, cfg: JSON.parse(fs.readFileSync(cfgPath, 'utf8')) };
+}
+
+// Return the folder entry of the config that holds a repository-relative file, or null.
+// The longest folder path wins, so the entry of a subfolder overrides the entry of its parent.
+// The folder entry gives the layer and the part of the file.
+export function placeFile(folders, file) {
+  return folders.filter((f) => file.startsWith(f.path)).sort((a, b) => b.path.length - a.path.length)[0] ?? null;
+}
+
 const HERITAGE = new Set(['implements', 'extends']);
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const majority = (values) => {
@@ -138,7 +151,6 @@ export function merge(code, views, cfg) {
     const prefix = Object.keys(cfg.views).find((k) => k.endsWith('-') && view.startsWith(k));
     return prefix === undefined ? null : cfg.views[prefix];
   };
-  const placeFile = (file) => cfg.folders.filter((f) => file.startsWith(f.path)).sort((a, b) => b.path.length - a.path.length)[0] ?? null;
   // Part views come before flow views, so a part view gives the members and the signature of a type.
   const viewOrder = [...views].sort((a, b) => (partOfView(a.view) === null) - (partOfView(b.view) === null) || byText(a.view, b.view));
 
@@ -162,7 +174,7 @@ export function merge(code, views, cfg) {
   // A homeless declaration is no code type name, so a view box of its name stays planned.
   // Each exported or drawn one gives a warning, and the warning does not fail the run.
   // A private declaration that no view draws never enters the model, so it gives no warning.
-  const isHomeless = (t) => t.file.startsWith('app/') && !placeFile(t.file);
+  const isHomeless = (t) => t.file.startsWith('app/') && !placeFile(cfg.folders, t.file);
   for (const t of code.types.filter((x) => isHomeless(x) && (x.exported || drawn.has(x.name)))) {
     notes.warnings.push(`${t.id} (${t.file}): no folder of the config holds this declaration of app/; a view box of its name stays planned`);
   }
@@ -221,7 +233,7 @@ export function merge(code, views, cfg) {
   for (const t of code.types) {
     const isDrawn = drawn.has(t.name);
     if (!isDrawn && (!t.exported || t.kind === 'const' || t.kind === 'component')) continue;
-    const place = placeFile(t.file);
+    const place = placeFile(cfg.folders, t.file);
     if (!place) {
       notes.unplaced.push(`${t.id} (${t.file}): no folder of the config holds it`);
       continue;
@@ -639,8 +651,7 @@ function main(argv) {
     console.error('usage: node merge.mjs <repo-root> <out-dir> [--config <config.json>]\n       node merge.mjs --check <model.json>');
     process.exit(2);
   }
-  const cfgPath = cfgArg ?? path.join(repoArg, 'docs', 'architecture', 'classes.config.json');
-  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  const { cfgPath, cfg } = readConfig(repoArg, cfgArg);
   const code = extract(repoArg);
   if (code.repo !== cfg.repo) throw new Error(`config ${cfgPath} is for ${cfg.repo}, the repository is ${code.repo}`);
   const { model, notes, unresolved } = merge(code, parseViews(repoArg), cfg);

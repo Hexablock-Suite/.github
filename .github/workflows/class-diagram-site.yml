@@ -58,12 +58,29 @@ jobs:
         run: |
           node merge.mjs "$GITHUB_WORKSPACE/hexablock-api" "$RUNNER_TEMP/models"
           node merge.mjs "$GITHUB_WORKSPACE/hexablock-app" "$RUNNER_TEMP/models"
+      # A product with docs/architecture/scenarios.json gets its scenarios checked against its model.
+      # A violation stops the job here too, so the site keeps its last good version.
+      - name: Check the scenario files
+        working-directory: tool/tools/drawio-clases
+        run: |
+          for repo in hexablock-api hexablock-app; do
+            file="$GITHUB_WORKSPACE/$repo/docs/architecture/scenarios.json"
+            if [ -f "$file" ]; then
+              node scenarios.mjs "$file" "$RUNNER_TEMP/models/$repo.model.json" "$GITHUB_WORKSPACE/$repo" "$RUNNER_TEMP/models"
+            fi
+          done
       # The API model goes first: a bare type name in the address opens the first model.
       - name: Build the page
         working-directory: tool/tools/drawio-clases/page
         run: |
           npm ci --ignore-scripts
           node build.mjs "$RUNNER_TEMP/models/hexablock-api.model.json" "$RUNNER_TEMP/models/hexablock-app.model.json" --out "$RUNNER_TEMP/site"
+      # export.mjs writes one image per scenario into the site: scenarios/<repo key>-<scenario id>.png.
+      # It drives the Chromium of the runner, headless, with a throwaway profile. The tests of the page job find the same browser.
+      # With no scenario file in either product, it needs no browser, writes nothing and ends with exit 0.
+      - name: Export the scenario images
+        working-directory: tool/tools/drawio-clases/page
+        run: node export.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/site/scenarios"
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: ${{ runner.temp }}/site

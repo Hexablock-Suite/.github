@@ -3,17 +3,17 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findChrome, launch } from '../cdp.mjs';
+import { findChrome, launch, serve } from '../cdp.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MINI = path.join(DIR, '..', 'fixtures', 'mini.model.json');
+const SCENARIO_REPO = path.join(DIR, '..', 'fixtures', 'mini-repo');
+const SCENARIOS = path.join(SCENARIO_REPO, 'docs', 'architecture', 'scenarios.json');
 const skip = findChrome() ? false : 'no Chromium on this machine';
-const TYPES = { '.html': 'text/html; charset=utf-8', '.json': 'application/json' };
 
 // wideModel has 960 classes: eight folders of 30 classes in each layer. Chains of extends make each folder tall.
 // Its canvas is about as large as the canvas of the App model, so the fit zoom of a 1440 by 900 window is under 0.1.
@@ -45,20 +45,20 @@ before(async () => {
   if (skip) return;
   scratch = mkdtempSync(path.join(tmpdir(), 'drawio-clases-zoom-test-'));
   // The site holds the mini model first, so the page opens it by default, and the wide model second.
-  const wide = path.join(scratch, 'wide.json');
+  // The mini model has the checked fixture scenarios next to it, as the workflow leaves them. The wide model has none.
+  const models = path.join(scratch, 'models');
+  mkdirSync(models);
+  const mini = path.join(models, 'mini.model.json');
+  copyFileSync(MINI, mini);
+  const s = spawnSync(process.execPath, [path.join(DIR, '..', 'scenarios.mjs'), SCENARIOS, MINI, SCENARIO_REPO, models], { encoding: 'utf8' });
+  assert.equal(s.status, 0, s.stdout + s.stderr);
+  const wide = path.join(models, 'wide.json');
   writeFileSync(wide, JSON.stringify(wideModel()));
-  const r = spawnSync(process.execPath, [path.join(DIR, 'build.mjs'), MINI, wide, '--out', scratch], { cwd: DIR, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [path.join(DIR, 'build.mjs'), mini, wide, '--out', scratch], { cwd: DIR, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   // The page reads its data files with fetch, and Chromium allows no fetch from a file URL.
-  server = createServer((req, res) => {
-    const name = req.url.split(/[?#]/)[0].slice(1) || 'index.html';
-    const file = path.join(scratch, path.basename(name));
-    if (!existsSync(file)) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream' });
-    res.end(readFileSync(file));
-  });
-  await new Promise((done) => server.listen(0, '127.0.0.1', done));
-  base = `http://127.0.0.1:${server.address().port}/`;
+  server = await serve(scratch);
+  base = server.base;
   browser = await launch();
   page = await browser.page();
   await page.viewport(1200, 800);
@@ -225,4 +225,199 @@ test('#6: at the fit zoom of a 1440 × 900 window, no band label overlaps a grou
     await page.eval("document.querySelector('#repo button[data-r=\"mini\"]').click()");
     await page.viewport(1200, 800);
   }
+});
+
+// pick chooses a scenario in the selector of the tool bar, as a reader does, and waits for its boxes.
+async function pick(id) {
+  await page.eval(`(() => { const s = document.getElementById('sc'); s.value = ${JSON.stringify(id)}; s.dispatchEvent(new Event('change')); })()`);
+  await page.wait(`document.documentElement.dataset.scenario === ${JSON.stringify(id)}`);
+  await page.sleep(400);
+}
+
+// SCENARIO_STATE reads what the page shows of a scenario, in the coordinates of the SVG.
+// A box gives its rectangle, its opacity, the stroke of its border and its marks. A group frame gives its title and its rectangle.
+const SCENARIO_STATE = `(() => {
+  const op = (el) => { let o = 1; for (let n = el; n && n.nodeType === 1; n = n.parentElement) o *= +getComputedStyle(n).opacity; return o; };
+  const boxes = {};
+  for (const g of document.querySelectorAll('#boxes .box')) {
+    const [x, y] = /translate\\(([-\\d.]+) ([-\\d.]+)\\)/.exec(g.getAttribute('transform')).slice(1).map(Number);
+    const bx = g.querySelector('.bx'), cs = getComputedStyle(bx);
+    boxes[g.dataset.id] = { r: [x, y, +bx.getAttribute('width'), +bx.getAttribute('height')], op: op(g), dash: cs.strokeDasharray, sw: parseFloat(cs.strokeWidth),
+      marks: [...g.querySelectorAll('.mk text')].map((t) => t.textContent) };
+  }
+  const titles = Object.fromEntries([...document.querySelectorAll('#titles .fold')].map((g) => [g.dataset.f, g.getAttribute('aria-label').split(',')[0]]));
+  const groups = [...document.querySelectorAll('#frames .fr-g')].map((el) => ({ title: titles[el.dataset.f], op: op(el),
+    r: ['x', 'y', 'width', 'height'].map((a) => +el.getAttribute(a)) }));
+  const lines = Object.fromEntries([...document.querySelectorAll('#lines .e')].map((g) => {
+    const pts = (d) => d.match(/-?[\\d.]+/g).map(Number);
+    const ln = pts(g.querySelector('.ln').getAttribute('d')), hd = pts(g.querySelector('.hd').getAttribute('d'));
+    return [g.dataset.i, { cls: g.getAttribute('class'), op: op(g), start: ln.slice(0, 2), tip: hd.slice(0, 2) }];
+  }));
+  return { boxes, groups, lines, hash: location.hash, value: document.getElementById('sc').value };
+})()`;
+const inside = (r, f) => r[0] >= f[0] && r[1] >= f[1] && r[0] + r[2] <= f[0] + f[2] && r[1] + r[3] <= f[1] + f[3];
+const near = ([x, y], [bx, by, bw, bh]) => x >= bx - 1 && x <= bx + bw + 1 && y >= by - 1 && y <= by + bh + 1 &&
+  Math.min(Math.abs(x - bx), Math.abs(x - bx - bw), Math.abs(y - by), Math.abs(y - by - bh)) < 1;
+
+test('#7: the scenario selector lists the scenarios of the loaded repository and «No scenario», and «No scenario» is the page of today', { skip }, async () => {
+  await open();
+  const options = "[...document.querySelectorAll('#sc option')].map((o) => [o.value, o.textContent])";
+  assert.deepEqual(await page.eval(options), [['', 'No scenario'], ['square-rules', 'A third rule set: Square Rules'], ['file-store', 'A second store: File Store']]);
+  const today = await page.eval(SCENARIO_STATE);
+  assert.equal(today.value, '');
+  assert.equal(Object.keys(today.boxes).length, JSON.parse(readFileSync(MINI, 'utf8')).types.length);
+  await pick('square-rules');
+  await pick('');
+  const back = await page.eval(SCENARIO_STATE);
+  assert.deepEqual(back, today);
+  assert.equal(back.hash, '#mini');
+  assert.equal(await page.eval("document.querySelectorAll('#cv .sc-dim, #cv .sc-ext, #cv .added, #cv .mk').length"), 0);
+  // A repository with no scenario file lists «No scenario» only.
+  try {
+    await page.eval("document.querySelector('#repo button[data-r=\"wide\"]').click()");
+    await page.wait(`document.querySelectorAll('#boxes .box').length === ${WIDE_TYPES}`);
+    assert.deepEqual(await page.eval(options), [['', 'No scenario']]);
+  } finally {
+    await page.eval("document.querySelector('#repo button[data-r=\"mini\"]').click()");
+    await page.wait("document.documentElement.dataset.repo === 'mini'");
+  }
+});
+
+test('#7: with a scenario, the groups of the unchanged types dim, the extension points light, each added box is dashed in its group with its line, and the boxes of edited files carry the mark', { skip }, async () => {
+  await open();
+  const today = await page.eval(SCENARIO_STATE);
+  await pick('square-rules');
+  const s = await page.eval(SCENARIO_STATE);
+  // Engine and Phase sit in domain/engine, PlayGame in application. Rules is an extension point in domain/engine, so it does not dim.
+  assert.deepEqual(s.groups.filter((g) => g.op < 0.5).map((g) => g.title).sort(), ['application', 'domain/engine']);
+  for (const id of ['Engine', 'Phase', 'PlayGame', 'Outcome', 'UseCase']) assert.ok(s.boxes[id].op < 0.5, `${id} does not dim: ${s.boxes[id].op}`);
+  for (const id of ['WebServer', 'MemoryStore', 'LinesRules', 'Color']) assert.equal(s.boxes[id].op, 1, id);
+  for (const id of ['Rules', 'BaseRules']) {
+    assert.equal(s.boxes[id].op, 1, id);
+    assert.ok(s.boxes[id].sw > today.boxes[id].sw + 1, `${id} does not light: ${s.boxes[id].sw}`);
+  }
+  // SquareRules is new: a dashed box in the group of its file, with its extends line to BaseRules.
+  const sq = s.boxes.SquareRules;
+  assert.ok(sq, 'no box SquareRules');
+  assert.notEqual(sq.dash, 'none');
+  assert.ok(inside(sq.r, s.groups.find((g) => g.title === 'domain/rules').r), `SquareRules ${sq.r} is outside domain/rules`);
+  const edges = JSON.parse(readFileSync(MINI, 'utf8')).edges.length;
+  const line = s.lines[edges];
+  assert.ok(line, 'no line for SquareRules');
+  assert.equal(line.op, 1);
+  assert.ok(near(line.start, sq.r), `the line starts at ${line.start}`);
+  assert.ok(near(line.tip, s.boxes.BaseRules.r), `the line ends at ${line.tip}`);
+  // web-server.ts is the edited file. WebServer sits in it.
+  assert.deepEqual(Object.entries(s.boxes).filter(([, b]) => b.marks.length).map(([id, b]) => [id, b.marks]), [['WebServer', ['edited']]]);
+  assert.deepEqual(Object.entries(today.boxes).filter(([, b]) => b.marks.length), []);
+});
+
+test('#7: with a scenario, the side panel lists the edited files with their change line, also the files with no type in the model', { skip }, async () => {
+  await open();
+  await pick('file-store');
+  assert.equal(await page.eval("document.getElementById('panel').hidden"), false);
+  assert.equal(await page.eval("document.getElementById('p-name').textContent"), 'A second store: File Store');
+  const edits = await page.eval(`[...document.querySelectorAll('#p-body .edits > li')].map((li) => ({
+    file: li.querySelector('.ef').textContent, change: li.querySelector('.ec').textContent,
+    types: [...li.querySelectorAll('[data-go]')].map((b) => b.dataset.go), none: !!li.querySelector('.p-note') }))`);
+  assert.deepEqual(edits, [
+    { file: 'src/infrastructure/web-server.ts', change: 'build a FileStore in place of the MemoryStore', types: ['WebServer'], none: false },
+    { file: 'src/main.ts', change: 'read the store folder from the environment', types: [], none: true },
+  ]);
+});
+
+test('#7: the address names the scenario, so a link opens it', { skip }, async () => {
+  await open();
+  await pick('square-rules');
+  assert.equal(await page.eval('location.hash'), '#mini~square-rules');
+  await page.go('about:blank');
+  await page.go(base + '#mini~file-store');
+  await page.wait("document.documentElement.dataset.scenario === 'file-store'");
+  await page.sleep(400);
+  const s = await page.eval(SCENARIO_STATE);
+  assert.equal(s.value, 'file-store');
+  assert.notEqual(s.boxes.FileStore.dash, 'none');
+  // A link can name a chosen class and a scenario together.
+  await page.go('about:blank');
+  await page.go(base + '#mini-FileStore~file-store');
+  await page.wait("!document.getElementById('panel').hidden && document.getElementById('p-name').textContent === 'FileStore'");
+  assert.equal(await page.eval('location.hash'), '#mini-FileStore~file-store');
+  // «No scenario» drops the scenario from the address.
+  await pick('');
+  assert.equal(await page.eval('location.hash'), '#mini');
+});
+
+// withFetch runs a step with a page script that wraps fetch, from the next page load on. The script goes away after the step.
+async function withFetch(source, step) {
+  const { identifier } = await page.send('Page.addScriptToEvaluateOnNewDocument', { source });
+  try {
+    await step();
+  } finally {
+    await page.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
+  }
+}
+// openMini loads the page with the mini model and waits until it shows.
+async function openMini(hash = '#mini') {
+  await page.go('about:blank');
+  await page.go(base + hash);
+  await page.wait("document.documentElement.dataset.ready === '1' && document.documentElement.dataset.repo === 'mini'");
+}
+const choose = (id) => page.eval(`(() => { const s = document.getElementById('sc'); s.value = ${JSON.stringify(id)}; s.dispatchEvent(new Event('change')); })()`);
+const busy = () => page.eval("document.getElementById('stage').getAttribute('aria-busy')");
+const statusText = () => page.eval("document.getElementById('status').textContent");
+
+test('#7: a newer choice that replaces a pending scenario load leaves the stage not busy', { skip }, async () => {
+  const slow = `(() => { const f = window.fetch; window.fetch = (u, ...a) => String(u).includes('scenario-file-store.positions')
+    ? new Promise((r) => setTimeout(r, 1500)).then(() => f(u, ...a)) : f(u, ...a); })()`;
+  await withFetch(slow, async () => {
+    await openMini();
+    await choose('file-store');
+    await page.sleep(100);
+    assert.equal(await busy(), 'true');
+    await choose('');
+    await page.sleep(2000);
+    assert.equal(await busy(), null);
+    assert.equal(await page.eval('document.documentElement.dataset.scenario'), '');
+    assert.equal(await page.eval('location.hash'), '#mini');
+  });
+});
+
+test('#7: a linked scenario whose positions do not load keeps its address, so a reload tries it again', { skip }, async () => {
+  const failing = `(() => { const f = window.fetch; window.fetch = (u, ...a) => String(u).includes('scenario-file-store.positions')
+    ? Promise.resolve(new Response('', { status: 500 })) : f(u, ...a); })()`;
+  await withFetch(failing, async () => {
+    await openMini('#mini~file-store');
+    assert.equal(await page.eval('document.documentElement.dataset.scenario'), '');
+    assert.equal(await page.eval('location.hash'), '#mini~file-store');
+    assert.equal(await statusText(), 'The scenario did not load. Reload the page.');
+    assert.equal(await busy(), null);
+  });
+});
+
+test('#7: only a missing scenario file means no scenario; a failed load says so and is tried again later', { skip }, async () => {
+  // The first request of the scenario file of mini fails with 500, the second one gets a body that is not JSON. The third one reaches the server.
+  const failing = `(() => { const f = window.fetch; let n = 0; window.fetch = (u, ...a) => {
+    if (!String(u).endsWith('mini.scenarios.json')) return f(u, ...a);
+    n += 1;
+    if (n === 1) return Promise.resolve(new Response('', { status: 500 }));
+    if (n === 2) return Promise.resolve(new Response('{', { status: 200 }));
+    return f(u, ...a);
+  }; })()`;
+  const options = () => page.eval("[...document.querySelectorAll('#sc option')].map((o) => o.value)");
+  const openRepo = async (r) => {
+    await page.eval(`document.querySelector('#repo button[data-r="${r}"]').click()`);
+    await page.wait(`document.documentElement.dataset.repo === '${r}' && !document.getElementById('stage').hasAttribute('aria-busy')`, 60000);
+  };
+  await withFetch(failing, async () => {
+    await openMini();
+    assert.deepEqual(await options(), ['']);
+    assert.equal(await statusText(), 'The scenarios did not load. Reload the page.');
+    await openRepo('wide');
+    await openRepo('mini');
+    assert.deepEqual(await options(), ['']);
+    assert.equal(await statusText(), 'The scenarios did not load. Reload the page.');
+    await openRepo('wide');
+    await openRepo('mini');
+    assert.deepEqual(await options(), ['', 'square-rules', 'file-store']);
+  });
 });

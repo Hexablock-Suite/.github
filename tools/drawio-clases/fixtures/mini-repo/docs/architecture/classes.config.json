@@ -1,0 +1,56 @@
+{
+  "repo": "mini",
+  "parts": [
+    {
+      "id": "core",
+      "title": "Core",
+      "layers": [
+        1,
+        2
+      ]
+    },
+    {
+      "id": "shell",
+      "title": "Shell",
+      "layers": [
+        3
+      ]
+    },
+    {
+      "id": "infrastructure",
+      "title": "Infrastructure",
+      "layers": [
+        4
+      ]
+    }
+  ],
+  "views": {},
+  "folders": [
+    {
+      "path": "src/domain/",
+      "layer": 1,
+      "part": "core"
+    },
+    {
+      "path": "src/application/",
+      "layer": 2,
+      "part": "core"
+    },
+    {
+      "path": "src/adapters/",
+      "layer": 3,
+      "part": "shell"
+    },
+    {
+      "path": "src/infrastructure/",
+      "layer": 4,
+      "part": "infrastructure"
+    }
+  ],
+  "patterns": {
+    "Engine->Rules": "Strategy",
+    "Engine->Phase": "State",
+    "Engine->MoveHistory": "Command",
+    "LoggingAspect->UseCase": "Decorator"
+  }
+}

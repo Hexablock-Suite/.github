@@ -32,6 +32,10 @@
   let density = 'compact', P = null;
   let k = 1, tx = 0, ty = 0;
   let sel = null, hl = null;
+  // data holds the loaded repository: its model, its positions and its scenarios. scen is the shown scenario, or null.
+  let data = null, scen = null;
+  // keepSc is the id of a linked scenario that did not load. The address keeps it, so a reload tries it again.
+  let keepSc = null;
   let boxEl = new Map(), lineEl = new Map(), titles = [], zones = [], bandTags = [], stLines = [];
 
   // edgeKind sorts an edge into structure, attribute use or other use. isAttr comes from box-text.js.
@@ -91,8 +95,8 @@
   // ---------- render ----------
   function boxSVG(t, r) {
     const m = boxModel(t, density, 0);
-    const cls = 'box L' + t.layer + (t.status === 'planned' ? ' planned' : '') + (t.abstract ? ' abs' : '');
-    const label = t.name + (m.st ? ', ' + m.st : '') + ', layer ' + t.layer;
+    const cls = 'box L' + t.layer + (t.status === 'planned' ? ' planned' : '') + (t.abstract ? ' abs' : '') + (t.added ? ' added' : '');
+    const label = t.name + (m.st ? ', ' + m.st : '') + ', layer ' + t.layer + (t.added ? ', added by the scenario' : '');
     // The caps limit how much a name or a stereotype may grow at the middle level.
     const nameW = textW((t.abstract ? 'italic ' : '') + "600 12px 'IBM Plex Sans'", t.name);
     const stW = m.st ? textW("8px 'IBM Plex Mono'", m.st) + m.st.length * 0.64 : 1;
@@ -216,6 +220,7 @@
     const zg = document.querySelectorAll('#titles .zl');
     zones.forEach((z, i) => { z.el = zg[i]; });
     applyHighlight();
+    applyScenario();
     lastScale = -1;
   }
 
@@ -623,8 +628,12 @@
     sel = null;
     clearMarks();
     cv.classList.remove('has-sel');
-    panel.hidden = true;
-    app.classList.remove('has-sheet');
+    // With a scenario, the panel shows the scenario again.
+    if (scen) fillScenario();
+    else {
+      panel.hidden = true;
+      app.classList.remove('has-sheet');
+    }
     $('#status').textContent = 'No class chosen.';
     setHash(null);
   }
@@ -662,7 +671,10 @@
     const kind = KIND[t.kind] || t.kind;
     $('#p-where').innerHTML = '<span class="chip-l L' + t.layer + '"><i></i>Layer ' + t.layer + ' · ' + esc(LAYER[t.layer]) + '</span><span>' + esc(kind) + '</span><span>' + esc(folder) + '</span>' + (t.requirement ? '<span>' + esc(t.requirement) + '</span>' : '');
     let h = '';
-    if (t.file) {
+    $('#p-close').setAttribute('aria-label', 'Clear the choice');
+    if (t.added) {
+      h += '<p class="p-note">Added by the scenario. Its file ' + esc(t.file) + ' does not exist yet.</p>';
+    } else if (t.file) {
       h += '<a class="src" href="' + esc(ghUrl(t.file, t.line)) + '" target="_blank" rel="noopener"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5H3.5v9h9V10M9 2.5h4.5V7M13.5 2.5 7.5 8.5"/></svg>View ' + esc(t.file.split('/').pop()) + ' on GitHub, line ' + t.line + '</a>';
     } else {
       h += '<p class="p-note">Planned class. Only a view draws it, and it has no file.</p>';
@@ -696,7 +708,13 @@
     const b = ev.target.closest('[data-go]');
     if (b) choose(b.dataset.go, { center: true, minK: Math.max(k, LOD2) });
   });
-  $('#p-close').addEventListener('click', () => { const id = sel; clearChoice(); if (id && boxEl.get(id)) boxEl.get(id).focus({ preventScroll: true }); });
+  $('#p-close').addEventListener('click', () => {
+    // With a scenario and no chosen class, the button closes the scenario panel.
+    if (!sel) { panel.hidden = true; app.classList.remove('has-sheet'); return; }
+    const id = sel;
+    clearChoice();
+    if (id && boxEl.get(id)) boxEl.get(id).focus({ preventScroll: true });
+  });
 
   // ---------- highlight ----------
   // A set is a key: «st:» a stereotype, «v:» a view, «l:» a layer, «p:» a pattern.
@@ -798,6 +816,105 @@
     if (narrow()) closeMenus();
   });
   $('#hl-clear').addEventListener('click', clearHighlight);
+
+  // ---------- scenario ----------
+  // A scenario builds on the highlight: its extension points light as a lit set does, and the groups of its unchanged types fade.
+  // Each added box shows dashed in the group of its file, with its line. Each box of an edited file carries the mark «edited».
+  // scenarioModel comes from scenario.js. The build lays out the same copy of the model, so the line indexes agree.
+  const groupKey = (t) => t.layer + '|' + zoneOf(t);
+  // markSVG draws the mark «edited» on the bottom edge of a box, at the right. The tabs of a choice sit at the top left.
+  function markSVG(r) {
+    const text = 'edited', tw = text.length * 8 * 0.68 + 12;
+    return '<g class="mk" aria-hidden="true"><rect x="' + (r.w - 10 - tw).toFixed(1) + '" y="' + (r.h - 8) + '" width="' + tw.toFixed(1) + '" height="15" rx="3"/><text x="' + (r.w - 10 - tw / 2).toFixed(1) + '" y="' + (r.h + 2.6) + '">' + text + '</text></g>';
+  }
+  function applyScenario() {
+    cv.classList.toggle('has-sc', !!scen);
+    if (!scen) return;
+    const points = new Set(scen.extensionPoints);
+    const files = new Set(scen.edits.map((e) => e.file));
+    const dim = new Set(scen.unchanged.map((id) => byId.get(id)).filter(Boolean).map(groupKey));
+    // A box that the scenario names keeps its ink, also in a group that fades.
+    const named = (t) => points.has(t.id) || t.added || files.has(t.file);
+    const faded = new Set();
+    for (const [id, g] of boxEl) {
+      const t = byId.get(id);
+      const role = [points.has(id) && 'extension point', files.has(t.file) && 'edited file'].filter(Boolean);
+      if (!named(t) && dim.has(groupKey(t))) { g.classList.add('sc-dim'); faded.add(id); }
+      if (points.has(id)) g.classList.add('sc-ext');
+      if (files.has(t.file)) g.insertAdjacentHTML('beforeend', markSVG(rectOf(id)));
+      if (role.length) g.setAttribute('aria-label', g.getAttribute('aria-label') + ', ' + role.join(', '));
+    }
+    P.frames.forEach((f, fi) => {
+      if (f.kind !== 'g' || !dim.has(f.layer + '|' + f.title)) return;
+      document.querySelectorAll('#frames [data-f="' + fi + '"], #titles .fold[data-f="' + fi + '"]').forEach((el) => el.classList.add('sc-dim'));
+    });
+    for (const [i, g] of lineEl) {
+      const e = model.edges[i];
+      if (byId.get(e.from).added) g.classList.add('sc-add');
+      else if (faded.has(e.from) && faded.has(e.to)) g.classList.add('sc-dim');
+    }
+  }
+
+  // fillScenario shows the scenario in the side panel: its edited files with their change line, its added boxes,
+  // its extension points and its unchanged types. An edited file with no type in the model shows too.
+  function fillScenario() {
+    const s = scen;
+    $('#p-st').textContent = 'Scenario';
+    $('#p-st').hidden = false;
+    $('#p-name').textContent = s.title;
+    $('#p-name').classList.remove('abs');
+    $('#p-where').innerHTML = '<span>' + s.adds.length + ' added</span><span>' + s.edits.length + ' edited</span><span>' + s.extensionPoints.length + ' extension points</span>';
+    $('#p-close').setAttribute('aria-label', 'Close the scenario panel');
+    const item = (t, small) => '<li><button class="rel" type="button" data-go="' + esc(t.id) + '"><b>' + esc(t.name) + '</b><small>' + esc(small) + '</small></button></li>';
+    const list = (ts, small) => (ts.length ? '<ul class="rels">' + ts.map((t) => item(t, small(t))).join('') + '</ul>' : '<p class="p-note">None.</p>');
+    let h = s.source ? '<a class="src" href="' + esc(ghUrl(s.source)) + '" target="_blank" rel="noopener"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5H3.5v9h9V10M9 2.5h4.5V7M13.5 2.5 7.5 8.5"/></svg>Steps in ' + esc(s.source) + '</a>' : '';
+    h += '<h3>Edited files <span class="n">' + s.edits.length + '</span></h3><ul class="edits">' + s.edits.map((e) => {
+      const ts = model.types.filter((t) => t.file === e.file);
+      return '<li><a class="ef" href="' + esc(ghUrl(e.file)) + '" target="_blank" rel="noopener">' + esc(e.file) + '</a><p class="ec">' + esc(e.change) + '</p>' +
+        (ts.length ? '<ul class="rels">' + ts.map((t) => item(t, 'edited')).join('') + '</ul>' : '<p class="p-note">No type of the model sits in this file.</p>') + '</li>';
+    }).join('') + '</ul>';
+    const added = model.types.filter((t) => t.added);
+    h += '<h3>Added <span class="n">' + added.length + '</span></h3>' + list(added, (t) => {
+      const a = s.adds.find((x) => x.name === t.id);
+      return a.implements ? 'implements ' + a.implements : a.extends ? 'extends ' + a.extends : t.file;
+    });
+    const named = (ids) => ids.map((id) => byId.get(id)).filter(Boolean);
+    h += '<h3>Extension points <span class="n">' + s.extensionPoints.length + '</span></h3>' + list(named(s.extensionPoints), (t) => KIND[t.kind] || t.kind);
+    h += '<h3>Unchanged <span class="n">' + s.unchanged.length + '</span></h3>' + list(named(s.unchanged), (t) => zoneOf(t));
+    $('#p-body').innerHTML = h;
+    $('#p-body').scrollTop = 0;
+    panel.hidden = false;
+    app.classList.add('has-sheet');
+  }
+
+  // ---------- export ----------
+  // export.mjs calls exportScenario through the DevTools protocol before it takes the image of the shown scenario.
+  // The class export hides the tool bar, the zoom buttons and the legend lines about a choice or a highlight.
+  // The image keeps the diagram, the side panel with the scenario title, and the open legend.
+  // The view fits the groups that the scenario touches, in the larger free room: beside the legend or above it.
+  // A resize keeps that view. export.mjs calls exportScenario again after it changes the window size.
+  // exportScenario gives the title of the shown scenario and the fit zoom, or null with no scenario.
+  function exportScenario() {
+    if (!scen) return null;
+    app.classList.add('export');
+    $('#legend').open = true;
+    const points = new Set(scen.extensionPoints), kept = new Set(scen.unchanged), files = new Set(scen.edits.map((e) => e.file));
+    const rects = model.types.filter((t) => points.has(t.id) || kept.has(t.id) || t.added || files.has(t.file))
+      .map((t) => P.frames.find((f) => f.kind === 'g' && f.layer + '|' + f.title === groupKey(t)) || rectOf(t.id));
+    // A scenario that names no type fits the whole canvas.
+    if (!rects.length) rects.push({ x: 0, y: 0, w: P.w, h: P.h });
+    const x0 = Math.min(...rects.map((r) => r.x)), y0 = Math.min(...rects.map((r) => r.y));
+    const r = { x: x0, y: y0, w: Math.max(...rects.map((q) => q.x + q.w)) - x0, h: Math.max(...rects.map((q) => q.y + q.h)) - y0 };
+    const v = view(), st = stage.getBoundingClientRect(), lg = $('#legend').getBoundingClientRect(), m = 24;
+    const rooms = [
+      { x: lg.right - st.left, y: 0, w: v.w - (lg.right - st.left), h: v.h },
+      { x: 0, y: 0, w: v.w, h: lg.top - st.top },
+    ].map((o) => ({ ...o, k: Math.min(1.25, clampK(Math.min((o.w - 2 * m) / r.w, (o.h - 2 * m) / r.h))) }));
+    const o = rooms[0].k >= rooms[1].k ? rooms[0] : rooms[1];
+    moveTo(o.k, o.x + o.w / 2 - (r.x + r.w / 2) * o.k, o.y + o.h / 2 - (r.y + r.h / 2) * o.k, false);
+    return { title: scen.title, k: o.k };
+  }
+  window.exportScenario = exportScenario;
 
   // ---------- menus ----------
   const menus = [['#hl-btn', '#hl-menu'], ['#ln-btn', '#ln-menu']].map(([b, m]) => ({ b: $(b), m: $(m) }));
@@ -1034,6 +1151,9 @@
     dpt: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-tab-dpt" x="1" y="3" width="28" height="8" rx="2"/></svg>',
     dep: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-tab-dep" x="1.5" y="3" width="27" height="8" rx="2"/></svg>',
     lit: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-lit" x="2" y="2.5" width="26" height="9" rx="2"/></svg>',
+    add: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-add" x="1" y="2" width="28" height="10" rx="2"/></svg>',
+    mk: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-mk" x="1" y="3" width="28" height="8" rx="2"/></svg>',
+    dim: '<svg viewBox="0 0 30 14" aria-hidden="true"><rect class="sw-dim" x="1" y="2" width="28" height="10" rx="2"/></svg>',
   };
   function buildLegend() {
     const kinds = new Set(model.edges.map((e) => e.kind));
@@ -1069,27 +1189,35 @@
       h += li(LG.view, 'A large folder shows each view as a zone. From far away, a zone shows no line to another zone. Zoom in to see those lines.');
     }
     h += li(LG.ghost, 'Ghost line, at the middle zoom: a line between two zones or two folders. It takes full ink for a chosen, hovered or highlighted end.', 'lg-ghost');
-    h += li(LG.sel, 'Chosen class.');
-    h += li(LG.dpt, 'Dependent tab. This class depends on the chosen class.');
-    h += li(LG.dep, 'Dependency tab. The chosen class depends on this class.');
-    h += li(LG.lit, 'Highlighted type. It has a thick border, and the rest fades.');
-    h += '<li>With a chosen class, its relations show. The thick border still marks the highlighted set.</li>';
+    // The lines of the class lg-act tell what a choice or a highlight shows. The image of a scenario hides them.
+    h += li(LG.sel, 'Chosen class.', 'lg-act');
+    h += li(LG.dpt, 'Dependent tab. This class depends on the chosen class.', 'lg-act');
+    h += li(LG.dep, 'Dependency tab. The chosen class depends on this class.', 'lg-act');
+    h += li(LG.lit, 'Highlighted type. It has a thick border, and the rest fades.', 'lg-act');
+    h += '<li class="lg-act">With a chosen class, its relations show. The thick border still marks the highlighted set.</li>';
+    if (scen) {
+      h += li(LG.lit, 'Extension point of the scenario. It has a thick border.', 'sep');
+      h += li(LG.add, 'Box that the scenario adds. Dashed border, with its line to the type that it implements or extends.');
+      h += li(LG.mk, 'Box of a file that the scenario edits. The side panel gives the change.');
+      h += li(LG.dim, 'Group of a type that the scenario leaves unchanged. It fades.');
+    }
     $('#legend-list').innerHTML = h;
   }
 
   // ---------- repository and hash ----------
-  // The hash names the repository and may name a type: #app, #api-PlayerProgress.
+  // The hash names the repository, and may name a type and a scenario: #app, #api-PlayerProgress, #app~fifth-variant, #app-GameEngine~fifth-variant.
+  // A type id has no «~», and a scenario id comes last, so the two never mix.
   // A bare type name opens the first repository, as older links do.
   function readHash() {
     const h = location.hash.slice(1);
-    const m = /^([a-z0-9]+)(?:-([A-Za-z0-9]+))?$/.exec(h);
-    if (m && REPOS[m[1]]) return { repo: m[1], id: m[2] || null };
-    if (/^[A-Za-z0-9]+$/.test(h)) return { repo: FIRST, id: h };
+    const m = /^([a-z0-9]+)(?:-([A-Za-z0-9]+))?(?:~([a-z0-9-]+))?$/.exec(h);
+    if (m && REPOS[m[1]]) return { repo: m[1], id: m[2] || null, sc: m[3] || null };
+    if (/^[A-Za-z0-9]+$/.test(h)) return { repo: FIRST, id: h, sc: null };
     return null;
   }
-  // setHash writes the repository and the chosen type. Only ASCII letters, digits and hyphens go in.
+  // setHash writes the repository, the chosen type and the shown scenario. Only ASCII letters, digits, hyphens and «~» go in.
   function setHash(id) {
-    const h = '#' + repo + (id && /^[A-Za-z0-9]+$/.test(id) ? '-' + id : '');
+    const h = '#' + repo + (id && /^[A-Za-z0-9]+$/.test(id) ? '-' + id : '') + (scen ? '~' + scen.id : keepSc ? '~' + keepSc : '');
     if (location.hash === h) return;
     try { history.replaceState(null, '', location.pathname + location.search + h); } catch { /* The hash is optional. */ }
   }
@@ -1101,15 +1229,35 @@
   }
 
   const getJSON = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(url + ' ' + r.status); return r.json(); });
+  // The scenario file of a repository is optional. Only a missing file (404) gives no scenario.
+  // Another failure (the network, another status, a body that is not a scenario file) gives null.
+  const scenariosOf = (r) => fetch(REPOS[r] + '.scenarios.json')
+    .then((x) => (x.status === 404 ? { scenarios: [] } : x.ok ? x.json() : null))
+    .then((d) => (d && Array.isArray(d.scenarios) ? d.scenarios : null))
+    .catch(() => null);
   // A data set loads once. A failed load is forgotten, so a later try fetches again.
+  // A failed load of the scenario file still shows the model, with no scenario. That set is forgotten too.
   const sets = new Map();
   function dataOf(r) {
     if (!sets.has(r)) {
-      const p = Promise.all([getJSON(REPOS[r] + '.model.json'), getJSON(REPOS[r] + '.positions.json')]);
-      p.catch(() => sets.delete(r));
+      const p = Promise.all([getJSON(REPOS[r] + '.model.json'), getJSON(REPOS[r] + '.positions.json'), scenariosOf(r)])
+        .then(([m, p, scenarios]) => ({ m, p, scenarios: scenarios || [], scenariosFailed: !scenarios }));
+      const forget = () => { if (sets.get(r) === p) sets.delete(r); };
+      p.then((d) => { if (d.scenariosFailed) forget(); }, forget);
       sets.set(r, p);
     }
     return sets.get(r);
+  }
+  // The positions of a scenario load when the reader picks it, once.
+  const scenarioSets = new Map();
+  function scenarioPositions(r, id) {
+    const key = r + '~' + id;
+    if (!scenarioSets.has(key)) {
+      const p = getJSON(REPOS[r] + '.scenario-' + id + '.positions.json');
+      p.catch(() => scenarioSets.delete(key));
+      scenarioSets.set(key, p);
+    }
+    return scenarioSets.get(key);
   }
   const markRepo = (r) => document.querySelectorAll('#repo button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.r === r)));
 
@@ -1117,25 +1265,9 @@
   const fonts = Promise.all(["600 15px 'IBM Plex Sans'", "12.5px 'IBM Plex Sans'", "600 12px 'IBM Plex Sans'", "italic 600 12px 'IBM Plex Sans'", "8px 'IBM Plex Mono'"]
     .map((f) => document.fonts.load(f).catch(() => null)));
 
-  // openRepo loads one repository and draws it. The page does not reload.
-  // A later call wins over an earlier one that is still loading.
-  let loadSeq = 0;
-  async function openRepo(r, id) {
-    const seq = ++loadSeq;
-    markRepo(r);
-    stage.setAttribute('aria-busy', 'true');
-    let m, p;
-    try { [m, p] = await Promise.all([dataOf(r), fonts]).then(([d]) => d); } catch {
-      if (seq !== loadSeq) return;
-      stage.removeAttribute('aria-busy');
-      markRepo(repo);
-      const msg = 'The model did not load. Reload the page.';
-      if ($('#loading')) $('#loading').textContent = msg; else $('#status').textContent = msg;
-      return;
-    }
-    if (seq !== loadSeq) return;
-    stage.removeAttribute('aria-busy');
-    // A new repository starts clean: no choice, no highlight, no search.
+  // show draws one model with its positions: the model of the repository, or its copy with the boxes of the scenario scen.
+  // It starts clean: no choice, no highlight, no search. id names a type to choose.
+  function show(m, p, id) {
     hoverOff();
     closeMenus();
     closeHits();
@@ -1144,8 +1276,6 @@
     cv.classList.remove('has-sel');
     panel.hidden = true;
     app.classList.remove('has-sheet');
-    repo = r;
-    storeRepo(r);
     model = m; positions = p;
     partTitle = new Map((m.parts || []).map((x) => [x.id, x.title]));
     byId = new Map(m.types.map((t) => [t.id, t]));
@@ -1162,27 +1292,97 @@
     showTab(tab === 'p' && !options.p.length ? 'st' : tab);
     buildLegend();
     render();
+    // The scenario panel shows before the fit, so the fit leaves room for it.
+    if (scen) fillScenario();
     fit(false);
-    $('#status').textContent = 'Repository ' + m.repo + ' loaded. ' + typesText(m.types.length) + '.';
     if (id && byId.has(id)) choose(id, { center: true }); else setHash(null);
     document.documentElement.dataset.ready = '1';
-    document.documentElement.dataset.repo = r;
+    document.documentElement.dataset.repo = repo;
+    document.documentElement.dataset.scenario = scen ? scen.id : '';
+  }
+
+  // fillScenarios lists the scenarios of the loaded repository in the selector, after «No scenario».
+  function fillScenarios() {
+    $('#sc').innerHTML = '<option value="">No scenario</option>' + data.scenarios.map((s) => '<option value="' + esc(s.id) + '">' + esc(s.title) + '</option>').join('');
+  }
+
+  // present shows the scenario s with its positions p, or the plain model for a null s.
+  // keep names a linked scenario that did not load, for the address. present ends every load, so the stage is no longer busy.
+  function present(s, p, id, keep = null) {
+    stage.removeAttribute('aria-busy');
+    scen = s;
+    keepSc = s ? null : keep;
+    $('#sc').value = s ? s.id : '';
+    show(s ? scenarioModel(data.m, s) : data.m, p, id);
+  }
+
+  // openRepo loads one repository and draws it, with the scenario sc when it names one. The page does not reload.
+  // A later call wins over an earlier one that is still loading. A scenario that does not load leaves the plain model.
+  let loadSeq = 0;
+  async function openRepo(r, id, sc) {
+    const seq = ++loadSeq;
+    markRepo(r);
+    stage.setAttribute('aria-busy', 'true');
+    let d, sp = null;
+    try { [d] = await Promise.all([dataOf(r), fonts]); } catch {
+      if (seq !== loadSeq) return;
+      stage.removeAttribute('aria-busy');
+      markRepo(repo);
+      const msg = 'The model did not load. Reload the page.';
+      if ($('#loading')) $('#loading').textContent = msg; else $('#status').textContent = msg;
+      return;
+    }
+    const s = d.scenarios.find((x) => x.id === sc) || null;
+    if (s) sp = await scenarioPositions(r, s.id).catch(() => null);
+    if (seq !== loadSeq) return;
+    stage.removeAttribute('aria-busy');
+    repo = r;
+    storeRepo(r);
+    data = d;
+    fillScenarios();
+    present(sp ? s : null, sp || d.p, id, (s && !sp) || d.scenariosFailed ? sc : null);
+    $('#status').textContent = sp ? 'Scenario ' + s.title + ' shown.' : s ? 'The scenario did not load. Reload the page.'
+      : d.scenariosFailed ? 'The scenarios did not load. Reload the page.' : 'Repository ' + d.m.repo + ' loaded. ' + typesText(d.m.types.length) + '.';
+  }
+
+  // openScenario shows one scenario of the loaded repository, or the plain model for a null id.
+  // A scenario that does not load leaves the page as it is.
+  async function openScenario(sid, id) {
+    const seq = ++loadSeq;
+    const s = data.scenarios.find((x) => x.id === sid) || null;
+    let p = data.p;
+    if (s) {
+      stage.setAttribute('aria-busy', 'true');
+      try { p = await scenarioPositions(repo, s.id); } catch {
+        if (seq !== loadSeq) return;
+        stage.removeAttribute('aria-busy');
+        $('#sc').value = scen ? scen.id : '';
+        $('#status').textContent = 'The scenario did not load. Reload the page.';
+        return;
+      }
+      if (seq !== loadSeq) return;
+      stage.removeAttribute('aria-busy');
+    }
+    present(s, p, id);
+    $('#status').textContent = s ? 'Scenario ' + s.title + ' shown.' : 'No scenario. Repository ' + data.m.repo + ' shown.';
   }
 
   document.querySelectorAll('#repo button').forEach((b) => b.addEventListener('click', () => {
-    if (b.dataset.r !== repo) openRepo(b.dataset.r, null);
+    if (b.dataset.r !== repo) openRepo(b.dataset.r, null, null);
   }));
+  $('#sc').addEventListener('change', () => { if (data) openScenario($('#sc').value || null, null); });
 
   // ---------- start ----------
   let resizeTimer = 0;
-  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!sel && model) fit(false); }, 120); });
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!sel && model && !app.classList.contains('export')) fit(false); }, 120); });
   window.addEventListener('hashchange', () => {
     const h = readHash();
     if (!h) return;
-    if (h.repo !== repo) openRepo(h.repo, h.id);
+    if (h.repo !== repo) openRepo(h.repo, h.id, h.sc);
+    else if (data && h.sc !== (scen ? scen.id : null)) openScenario(h.sc, h.id);
     else if (h.id && byId && byId.has(h.id) && h.id !== sel) choose(h.id, { center: true });
   });
 
   const first = readHash();
-  openRepo(first ? first.repo : storedRepo() || FIRST, first && first.id);
+  openRepo(first ? first.repo : storedRepo() || FIRST, first && first.id, first && first.sc);
 })();
