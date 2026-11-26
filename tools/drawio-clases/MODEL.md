@@ -31,16 +31,16 @@ These two groups then get one cell id, and check (g) of `check.mjs` fails.
 |---|---|
 | `id` | Unique in the model. The type name, or `Name@path` when two types share a name. |
 | `name` | The name in the code or in the view. |
-| `kind` | `class`, `interface`, `union`, `type`, `enum` or `const` (an `export const` object that a view draws as a class). |
+| `kind` | `class`, `interface`, `union`, `type`, `enum`, `const` (an `export const` object that a view draws as a class) or `component` (a function component that a view draws: a function with a PascalCase name in a `.tsx` file of `src/` that the file exports with `export`, `export default Name;` or `export { Name }`, or the default export of a route file of `app/`). |
 | `abstract` | `true` for an abstract class. |
-| `status` | `code` when the type exists in `src/` at `head`. `planned` when only a view draws it. |
+| `status` | `code` when the type exists in `src/` or `app/` at `head`. `planned` when only a view draws it. A declaration of `app/` that no folder of the config holds is no code type: a view box of its name stays `planned`, and `merge.mjs` prints one `warning:` line for it when it is exported or a view draws it. |
 | `sprint` | `"Sprint N"` when a view marks a planned type with that stereotype, else `null`. A type with `status: code` always has `null`. |
-| `stereotypes` | Stereotype names without guillemets, for example `["Strategy"]`, `["port"]`, `["aggregate root"]`. `merge.mjs` adds `enumeration` to a `union`, `interface` to an interface with no other stereotype, and `dataType` (or the `stereotypeFor` name of the config) to a code class with no operation. An interface never gets `dataType`. The generator adds `planned` for a planned type. |
+| `stereotypes` | Stereotype names without guillemets, for example `["Strategy"]`, `["port"]`, `["aggregate root"]`. `merge.mjs` adds `enumeration` to a `union`, `component` to a `component`, `interface` to an interface with no other stereotype, and `dataType` (or the `stereotypeFor` name of the config) to a code class with no operation. An interface never gets `dataType`. The generator adds `planned` for a planned type. |
 | `layer` | Clean layer, `1` (entities) to `4` (frameworks and drivers). |
 | `part` | One part id of the top level. |
 | `file`, `line` | Repository-relative source path and line. `null` for a planned type. |
 | `typeParams` | `[{ "name", "constraint", "default" }]`, the UML template parameters. |
-| `attrs` | `[{ "vis", "name", "type", "static", "readonly", "optional" }]`. `vis` is `+`, `-` or `#`. |
+| `attrs` | `[{ "vis", "name", "type", "static", "readonly", "optional" }]`. `vis` is `+`, `-` or `#`. The attributes of a `component` are its props: each property or method signature that the source declares for its first parameter. A method signature gives a function type, for example `(at: Coord) => void`. |
 | `ops` | `[{ "vis", "name", "typeParams", "params", "ret", "abstract", "static" }]`. `typeParams` holds the operation's own type parameters in the shape of the type's `typeParams`, and is `[]` when it has none. `params` is a list of `"name: Type"`. `ret` is `null` only for a constructor. |
 | `values` | The literals of a `union` or the members of an `enum`. |
 | `alias` | The aliased type text of a `type` that is not an object or a literal union, else `null`. |
@@ -59,7 +59,7 @@ The generator prints it with its «Sprint N», or with «planned» when the view
 |---|---|
 | `from`, `to` | Type ids. `from` is the holder, the caller or the subtype. |
 | `kind` | `use`, `implements`, `extends`, `aggregation` or `composition`. |
-| `label` | Text next to the line. An attribute use carries its name and multiplicity (`games 1`, `history 0..1`, `cells *`). A `new` carries `«create»`. Any other use carries the operation that uses the type, for example `execute()`. A type argument of a heritage clause carries `«bind»`. An `aggregation` with the pattern `Decorator` carries the role `decorate` and the multiplicity instead of the attribute name, for example `decorate 1`. The code gives that multiplicity for an edge with `status: code`, and the view gives it for a planned edge. `null` for `implements`, `extends`, and a use that comes only from a type alias. |
+| `label` | Text next to the line. An attribute use carries its name and multiplicity (`games 1`, `history 0..1`, `cells *`). A `new` carries `«create»`. Any other use carries the operation that uses the type, for example `execute()`. A use inside a top-level function of the same file counts for the operation that names that function in a call, a JSX tag, or a reference to the function as a value. A `typeof` type query reads no function. A function of another file stays unread. A type argument of a heritage clause carries `«bind»`. An `aggregation` with the pattern `Decorator` carries the role `decorate` and the multiplicity instead of the attribute name, for example `decorate 1`. The code gives that multiplicity for an edge with `status: code`, and the view gives it for a planned edge. `null` for `implements`, `extends`, a use that comes only from a type alias, and a use of a `component` that no prop holds. |
 | `pattern` | The GoF pattern that a diamond makes visible, for example `Strategy`. Required for `aggregation` and `composition`, else `null`. |
 | `status` | `code` when the code has the dependency at `head`. `planned` when only a view draws it. |
 | `views` | The view files that draw the edge. Empty for an edge that only the code has. |

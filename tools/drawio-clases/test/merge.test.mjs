@@ -2,15 +2,17 @@
 // Each test keeps its files in a fresh system temp directory.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { extract } from '../extract.mjs';
 import { merge } from '../merge.mjs';
 import { parseView } from '../views.mjs';
 
+const MERGE = fileURLToPath(new URL('../merge.mjs', import.meta.url));
 const scratch = mkdtempSync(path.join(tmpdir(), 'drawio-clases-merge-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
 
@@ -53,11 +55,11 @@ const ZONE_FILL = { 1: '#f9f4dc', 2: '#efe7f8', 3: '#e2ebf8', 4: '#cfdcf3' };
 // The holder box sits on the left and the target box on the right.
 // A diamond line has its marker at the holder. A use line has its arrowhead at the target.
 // The texts sit just above the line, so they label it.
-function view(name, from, to, kind, texts = [], layer = 2) {
+function viewHtml(from, to, kind, texts = [], layer = 2) {
   const box = (n, x) => `<!-- Class: ${n} -->\n<rect x="${x}" y="100" width="120" height="60" fill="#ffffff"/>\n<text x="${x + 60}" y="118" font-weight="600">${n}</text>`;
   const marker = kind === 'use' ? 'marker-end="url(#m-open)"' : `marker-start="url(#m-${kind === 'aggregation' ? 'diamond-hollow' : 'diamond-filled'})"`;
   const labels = texts.map((t, i) => `<text x="${200 + i * 50}" y="126">${t}</text>`).join('\n');
-  const html = [
+  return [
     '<svg><defs></defs>',
     `<!-- Layer zone ${layer} -->`,
     `<rect x="-20" y="80" width="480" height="100" fill="${ZONE_FILL[layer]}"/>`,
@@ -68,10 +70,12 @@ function view(name, from, to, kind, texts = [], layer = 2) {
     labels,
     '</svg>',
   ].join('\n');
+}
+function view(name, from, to, kind, texts = [], layer = 2) {
   const dir = tmp('views');
   mkdirSync(dir);
   const file = path.join(dir, `${name}.html`);
-  writeFileSync(file, html);
+  writeFileSync(file, viewHtml(from, to, kind, texts, layer));
   return parseView(file);
 }
 
@@ -222,6 +226,346 @@ test('previous behavior: a code class with no operation still gets «dataType»'
   const { model, notes } = merge(code([codeType('MoveDto')], []), [], config());
   assert.deepEqual(stereotypesOf(model, 'MoveDto'), ['dataType']);
   assert.deepEqual(notes.noOps.map(({ type, mark }) => [type.id, mark]), [['MoveDto', 'dataType']]);
+});
+
+// The options of a test that calls extract(). It skips when TypeScript does not resolve.
+const needsTypeScript = { skip: hasTypeScript ? false : 'TypeScript does not resolve; set NODE_PATH to a node_modules folder that holds it' };
+
+// Write a small repository with these files and commit it, so extract() reads it at HEAD.
+// The keys are repository-relative paths. The tsconfig reads src/ and app/ and keeps JSX as it is.
+function miniRepo(files) {
+  const repo = tmp('repo');
+  mkdirSync(repo, { recursive: true });
+  writeFileSync(path.join(repo, 'package.json'), '{ "name": "mini", "private": true }\n');
+  writeFileSync(
+    path.join(repo, 'tsconfig.json'),
+    '{ "compilerOptions": { "strict": true, "target": "ES2022", "jsx": "preserve" }, "include": ["src", "app"] }\n',
+  );
+  for (const [rel, text] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
+    writeFileSync(path.join(repo, rel), text);
+  }
+  const git = (...args) => execFileSync('git', ['-C', repo, '-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { stdio: 'ignore' });
+  git('init', '-q');
+  git('remote', 'add', 'origin', 'https://example.invalid/mini.git');
+  git('add', '.');
+  git('commit', '-q', '-m', 'mini');
+  return repo;
+}
+
+const usesFrom = (c, from) =>
+  c.edges.filter((e) => e.from === from && e.kind === 'use').map(({ to, label, viaAttr, multiplicity }) => ({ to, label, viaAttr, multiplicity }));
+
+test('A1: a use inside a module function or an arrow const of the same file counts for the member that calls it', needsTypeScript, () => {
+  const repo = miniRepo({
+    'src/domain/level-status.ts': 'export class LevelStatus {\n  static ofEach(n: number): number[] {\n    return [n];\n  }\n}\n',
+    'src/domain/tally.ts': 'export class Tally {\n  constructor(readonly n: number) {}\n}\n',
+    'src/domain/achievement-goal.ts': [
+      "import { LevelStatus } from './level-status';",
+      "import { Tally } from './tally';",
+      '',
+      '// The recursive call checks that the walk stops.',
+      'function wonCountOf(n: number): number {',
+      '  if (n > 9) return wonCountOf(n - 1);',
+      '  return LevelStatus.ofEach(n).length;',
+      '}',
+      'const tallyOf = (n: number) => new Tally(n);',
+      '',
+      'export class LevelsWon {',
+      '  isReachedBy(n: number): boolean {',
+      '    return wonCountOf(n) > 0;',
+      '  }',
+      '  count(n: number): number {',
+      '    return tallyOf(n).n;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  assert.deepEqual(usesFrom(c, 'LevelsWon'), [
+    { to: 'LevelStatus', label: 'isReachedBy()', viaAttr: false, multiplicity: null },
+    { to: 'Tally', label: '«create»', viaAttr: false, multiplicity: null },
+  ]);
+  assert.deepEqual(c.types.map((t) => t.id).sort(), ['LevelStatus', 'LevelsWon', 'Tally']);
+});
+
+test('previous behavior: a function of another file stays unread, through a named import or a namespace import', needsTypeScript, () => {
+  const repo = miniRepo({
+    'src/domain/hidden.ts': 'export class Hidden {\n  static of(n: number): number {\n    return n;\n  }\n}\n',
+    'src/domain/helpers.ts': "import { Hidden } from './hidden';\n\nexport function helperOf(n: number): number {\n  return Hidden.of(n);\n}\n",
+    'src/domain/caller.ts': [
+      "import { helperOf } from './helpers';",
+      "import * as helpers from './helpers';",
+      '',
+      'export class Caller {',
+      '  run(n: number): number {',
+      '    return helperOf(n);',
+      '  }',
+      '  runAll(n: number): number {',
+      '    return helpers.helperOf(n);',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  assert.deepEqual(c.edges.filter((e) => e.from === 'Caller'), []);
+});
+
+test('A2: an exported function component of a .tsx file of src/ is a code type of kind component, with its props as attributes', needsTypeScript, () => {
+  const repo = miniRepo({
+    'src/infrastructure/board-layout.ts': 'export interface BoardLayout {\n  cellSize(): number;\n}\n',
+    'src/infrastructure/cell-shape.ts': 'export class CellShape {\n  static of(n: number): string {\n    return String(n);\n  }\n}\n',
+    'src/infrastructure/count.ts': 'export class Count {\n  constructor(readonly value: number) {}\n}\n',
+    'src/infrastructure/plain.ts': 'export function Plain(): number {\n  return 1;\n}\n',
+    'src/infrastructure/board-view.tsx': [
+      "import type { BoardLayout } from './board-layout';",
+      "import { CellShape } from './cell-shape';",
+      "import type { Count } from './count';",
+      '',
+      'export interface BoardViewProps {',
+      '  readonly layout: BoardLayout;',
+      '  readonly label: string;',
+      '  readonly onPress?: () => void;',
+      '}',
+      '',
+      '// A component of the same file that is not exported: its JSX tag is a call.',
+      'function Cell({ size }: { readonly size: number }) {',
+      '  return <i>{CellShape.of(size)}</i>;',
+      '}',
+      '',
+      'export function BoardView({ layout, label }: BoardViewProps) {',
+      '  return <b title={label}><Cell size={layout.cellSize()} /></b>;',
+      '}',
+      '',
+      'export const Badge = ({ count }: { readonly count: Count }) => <i>{count.value}</i>;',
+      '',
+      'export function useBoard(): number {',
+      '  return 1;',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  const components = c.types.filter((t) => t.kind === 'component');
+  assert.deepEqual(
+    components.map(({ id, file, line, attrs, ops }) => ({ id, file, line, attrs, ops })),
+    [
+      {
+        id: 'BoardView',
+        file: 'src/infrastructure/board-view.tsx',
+        line: 16,
+        attrs: [
+          { vis: '+', name: 'layout', type: 'BoardLayout', static: false, readonly: true, optional: false },
+          { vis: '+', name: 'label', type: 'string', static: false, readonly: true, optional: false },
+          { vis: '+', name: 'onPress', type: '() => void', static: false, readonly: true, optional: true },
+        ],
+        ops: [],
+      },
+      {
+        id: 'Badge',
+        file: 'src/infrastructure/board-view.tsx',
+        line: 20,
+        attrs: [{ vis: '+', name: 'count', type: 'Count', static: false, readonly: true, optional: false }],
+        ops: [],
+      },
+    ],
+  );
+  assert.equal(c.types.some((t) => ['Cell', 'useBoard', 'Plain'].includes(t.id)), false);
+  assert.deepEqual(usesFrom(c, 'BoardView'), [
+    { to: 'BoardLayout', label: 'layout 1', viaAttr: true, multiplicity: '1' },
+    { to: 'BoardViewProps', label: null, viaAttr: false, multiplicity: null },
+    { to: 'CellShape', label: null, viaAttr: false, multiplicity: null },
+  ]);
+  assert.deepEqual(usesFrom(c, 'Badge'), [{ to: 'Count', label: 'count 1', viaAttr: true, multiplicity: '1' }]);
+
+  // A view that draws the component makes it a code type with «component». A component that no view draws stays out.
+  const views = [view('ad-1-board', 'BoardView', 'BoardLayout', 'use', ['layout 1'])];
+  const { model } = merge(c, views, config());
+  const board = model.types.find((t) => t.id === 'BoardView');
+  assert.deepEqual([board.kind, board.status, board.stereotypes], ['component', 'code', ['component']]);
+  assert.deepEqual(edgesOf(model, 'BoardView', 'BoardLayout').map(pick), [{ kind: 'use', label: 'layout 1', pattern: null, status: 'code' }]);
+  assert.equal(model.types.some((t) => t.id === 'Badge'), false);
+});
+
+// Two routes of app/ and one component of src/ for the route tests.
+const routeFiles = {
+  'src/adapters/game-presenter.ts': 'export class GamePresenter {\n  static create(): GamePresenter {\n    return new GamePresenter();\n  }\n}\n',
+  'src/infrastructure/board-view.tsx': 'export function BoardView({ label }: { readonly label: string }) {\n  return <b>{label}</b>;\n}\n',
+  'app/game/[gameId].tsx': [
+    "import { GamePresenter } from '../../src/adapters/game-presenter';",
+    "import { BoardView } from '../../src/infrastructure/board-view';",
+    '',
+    'export default function GameScreen() {',
+    '  return <Game />;',
+    '}',
+    '',
+    'function Game() {',
+    '  const presenter = GamePresenter.create();',
+    '  return <BoardView label={String(presenter)} />;',
+    '}',
+    '',
+    'export function generateStaticParams(): { gameId: string }[] {',
+    '  return [];',
+    '}',
+    '',
+  ].join('\n'),
+  'app/index.tsx': 'function HomeScreen() {\n  return <b />;\n}\n\nexport default HomeScreen;\n',
+};
+
+test('A2: the default export of each route of app/ is a code type of kind component', needsTypeScript, () => {
+  const repo = miniRepo(routeFiles);
+  const c = extract(repo);
+  assert.deepEqual(
+    c.types.filter((t) => t.kind === 'component').map(({ id, file, line }) => ({ id, file, line })),
+    [
+      { id: 'GameScreen', file: 'app/game/[gameId].tsx', line: 4 },
+      { id: 'HomeScreen', file: 'app/index.tsx', line: 1 },
+      { id: 'BoardView', file: 'src/infrastructure/board-view.tsx', line: 1 },
+    ],
+  );
+  assert.equal(c.types.some((t) => t.id === 'generateStaticParams'), false);
+  // The JSX tag of Game, a component of the same file, brings the uses of Game to GameScreen.
+  assert.deepEqual(usesFrom(c, 'GameScreen'), [
+    { to: 'BoardView', label: null, viaAttr: false, multiplicity: null },
+    { to: 'GamePresenter', label: null, viaAttr: false, multiplicity: null },
+  ]);
+
+  const cfg = config();
+  cfg.folders.push({ path: 'app/', layer: 4, part: 'core' });
+  const { model } = merge(c, [view('ad-1-game', 'GameScreen', 'GamePresenter', 'use', ['presenter'])], cfg);
+  const screen = model.types.find((t) => t.id === 'GameScreen');
+  assert.deepEqual([screen.kind, screen.status, screen.layer, screen.file], ['component', 'code', 4, 'app/game/[gameId].tsx']);
+  assert.deepEqual(edgesOf(model, 'GameScreen', 'GamePresenter').map(pick), [{ kind: 'use', label: null, pattern: null, status: 'code' }]);
+
+  // The model comes from HEAD, so an uncommitted change in app/ stops extract().
+  writeFileSync(path.join(repo, 'app', 'index.tsx'), 'export default function HomeScreen() {\n  return null;\n}\n');
+  assert.throws(() => extract(repo), /\/app has uncommitted changes; the model must come from HEAD/);
+});
+
+test('A2: each exported or drawn declaration of app/ with no folder in the config prints one warning line, its view box stays a planned type, and the run does not fail', needsTypeScript, () => {
+  // GameScreen and RouteParams have a view box. HomeScreen has none, but a route is exported.
+  // STONE is a private object of a route file that no view draws, so it gives no warning.
+  const repo = miniRepo({
+    ...routeFiles,
+    'app/route-params.ts': [
+      "import { GamePresenter } from '../src/adapters/game-presenter';",
+      '',
+      'const STONE = { size: 1 };',
+      '',
+      'export class RouteParams {',
+      '  presenter(): GamePresenter {',
+      '    return GamePresenter.create() + STONE.size;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+    'docs/architecture/classes.config.json': JSON.stringify(config()) + '\n',
+    'docs/architecture/classes/views/ad-1-game.html': viewHtml('GameScreen', 'GamePresenter', 'use', ['presenter']),
+    'docs/architecture/classes/views/ad-2-params.html': viewHtml('RouteParams', 'GamePresenter', 'use', ['asks']),
+  });
+  const out = tmp('out');
+  const run = spawnSync(process.execPath, [MERGE, repo, out], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  const warnings = run.stderr.split('\n').filter((l) => l.startsWith('warning:'));
+  const tail = 'no folder of the config holds this declaration of app/; a view box of its name stays planned';
+  assert.deepEqual(warnings, [
+    `warning: GameScreen (app/game/[gameId].tsx): ${tail}`,
+    `warning: HomeScreen (app/index.tsx): ${tail}`,
+    `warning: RouteParams (app/route-params.ts): ${tail}`,
+  ]);
+  // The model keeps each view box as a planned type with its view line, as before app/ was read.
+  const model = JSON.parse(readFileSync(path.join(out, 'mini.model.json'), 'utf8'));
+  const shape = (name) => model.types.filter((t) => t.name === name).map(({ kind, status, file }) => ({ kind, status, file }));
+  assert.deepEqual(shape('GameScreen'), [{ kind: 'class', status: 'planned', file: null }]);
+  assert.deepEqual(shape('RouteParams'), [{ kind: 'class', status: 'planned', file: null }]);
+  assert.deepEqual(shape('HomeScreen'), []);
+  assert.deepEqual(edgesOf(model, 'GameScreen', 'GamePresenter').map(pick), [{ kind: 'use', label: 'presenter', pattern: null, status: 'planned' }]);
+  assert.deepEqual(edgesOf(model, 'RouteParams', 'GamePresenter').map(pick), [{ kind: 'use', label: 'asks', pattern: null, status: 'planned' }]);
+  assert.match(run.stdout, / 0 violation\(s\)$/m);
+});
+
+test('A1: a typeof type query reads no function, and a shorthand property reads its function', needsTypeScript, () => {
+  const repo = miniRepo({
+    'src/domain/widget.ts': 'export class Widget {\n  static create(): number {\n    return 1;\n  }\n}\n',
+    'src/domain/gadget.ts': 'export class Gadget {\n  static of(): number {\n    return 2;\n  }\n}\n',
+    'src/domain/holder.ts': [
+      "import { Gadget } from './gadget';",
+      "import { Widget } from './widget';",
+      '',
+      'function makeThing() {',
+      '  return Widget.create();',
+      '}',
+      'const helper = () => Gadget.of();',
+      'function apply(o: { helper: () => number }): number {',
+      '  return o.helper();',
+      '}',
+      '',
+      'export class Holder {',
+      '  readonly made: ReturnType<typeof makeThing> = 0;',
+      '  run(): number {',
+      '    return apply({ helper });',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  assert.deepEqual(usesFrom(c, 'Holder'), [{ to: 'Gadget', label: 'run()', viaAttr: false, multiplicity: null }]);
+});
+
+test('A2: a prop in method syntax is an attribute, and the defaults of the props are uses', needsTypeScript, () => {
+  const repo = miniRepo({
+    'src/ui/coord.ts': 'export class Coord {\n  constructor(readonly q: number) {}\n}\n',
+    'src/ui/size.ts': 'export class Size {\n  static small(): number {\n    return 1;\n  }\n}\n',
+    'src/ui/glow.ts': 'export class Glow {\n  static base(): number {\n    return 2;\n  }\n}\n',
+    'src/ui/tile.tsx': [
+      "import type { Coord } from './coord';",
+      "import { Glow } from './glow';",
+      "import { Size } from './size';",
+      '',
+      'export function Tile({ size = Size.small() }: { readonly size?: number; onPick(at: Coord): void }) {',
+      '  return <i>{size}</i>;',
+      '}',
+      '',
+      'export function Halo(props: { readonly n: number } = { n: Glow.base() }) {',
+      '  return <i>{props.n}</i>;',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  assert.deepEqual(c.types.find((t) => t.id === 'Tile').attrs, [
+    { vis: '+', name: 'size', type: 'number', static: false, readonly: true, optional: true },
+    { vis: '+', name: 'onPick', type: '(at: Coord) => void', static: false, readonly: false, optional: false },
+  ]);
+  assert.deepEqual(usesFrom(c, 'Tile'), [
+    { to: 'Coord', label: 'onPick 1', viaAttr: true, multiplicity: '1' },
+    { to: 'Size', label: null, viaAttr: false, multiplicity: null },
+  ]);
+  assert.deepEqual(usesFrom(c, 'Halo'), [{ to: 'Glow', label: null, viaAttr: false, multiplicity: null }]);
+});
+
+test('A2: a component of src/ that export default or an export list exports is a component', needsTypeScript, () => {
+  const repo = miniRepo({
+    'src/ui/panel.tsx': [
+      'function Panel() {',
+      '  return <b />;',
+      '}',
+      'function Frame() {',
+      '  return <i />;',
+      '}',
+      'function Hidden() {',
+      '  return <s />;',
+      '}',
+      'export default Panel;',
+      'export { Frame };',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  assert.deepEqual(c.types.filter((t) => t.kind === 'component').map((t) => t.id), ['Panel', 'Frame']);
 });
 
 // splitConfig has the two parts of the split of Hexablock-Suite/hexablock-app#394 and Hexablock-Suite/hexablock-api#198.

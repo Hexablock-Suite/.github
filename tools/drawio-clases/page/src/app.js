@@ -5,7 +5,7 @@
   // The band names come from layout.mjs, through the build: the Clean name of the layer, then the name of its source folder.
   // The band labels, the layer chip of the side panel and the layer tab of the highlight menu use them.
   const LAYER = LAYER_NAMES;
-  const KIND = { class: 'class', interface: 'interface', type: 'type alias', union: 'union', const: 'constant', enum: 'enumeration' };
+  const KIND = { class: 'class', interface: 'interface', type: 'type alias', union: 'union', const: 'constant', enum: 'enumeration', component: 'component' };
   // Zoom levels. Far shows zones, middle shows names, near shows members and labels.
   // The values come from screenshots: at 0.44 a boosted name reads at about 8px.
   const LOD1 = 0.44, LOD2 = 0.9;
