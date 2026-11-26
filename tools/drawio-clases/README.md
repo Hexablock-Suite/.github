@@ -255,6 +255,7 @@ It prints one line for each violation, then the count, and exits 1. Then it writ
 
 - `extensionPoints`, `unchanged`, `implements` or `extends` names a type id that the model does not have;
 - an added box has the name of a type that the model has, or a `file` that no folder of `classes.config.json` holds;
+- two added boxes of one scenario have the same name;
 - a file of `edits` does not exist in the repository, or is outside it;
 - an `unchanged` type is also an extension point, or sits in a file of `edits`;
 - its `id` is not lowercase letters, digits and `-`, or another scenario of the file has the same `id`;
@@ -262,6 +263,7 @@ It prints one line for each violation, then the count, and exits 1. Then it writ
 
 The file also fails when the `repo` of the config is not the `repo` of the model.
 With no violation, the script writes `<out>/<repo-name>.scenarios.json`: the scenarios, and the `layer` and the `part` of each added box.
+Each edited file there has its normalized repository-relative path, for example `src/x.ts` for `./src/x.ts`. The model gives the file of a type in the same form, so the page finds the types of an edited file.
 The folders of the config give them, as they give the layer and the part of a code type in `merge.mjs`.
 A file that is missing or is not JSON gives one `error:` line on stderr and exit 1. A wrong argument count gives the usage line and exit 2.
 
@@ -311,6 +313,7 @@ node export.mjs <site> <images>
 - With no scenario in the site, it needs no browser. It writes nothing, prints `<site>: no scenario, no image written` and ends with exit code 0.
 - A missing Chromium, or a page that does not show its scenario or throws an exception, gives one `error:` line, writes no image and ends with exit code 1.
 - It stops the browser and the server that it started, also after an error.
+- In the workflow, a failed export stops the build before the deploy. The site then keeps its last good version, as with a model violation.
 
 The workflow `class-diagram-site.yml` runs it after the build, into `<site>/scenarios/`.
 So the site publishes each image at `https://hexablock-suite.github.io/.github/scenarios/<repo key>-<scenario id>.png`.
@@ -373,6 +376,7 @@ A scenario of `scenarios.json` (section «Scenarios» above) shows on the same m
 - The side panel shows the scenario: a link to its `source`, each edited file with its `change` line and the types in it, then the added boxes, the extension points and the unchanged types.
   An edited file with no type in the model shows too, with a note. A click on a type chooses it. When the choice ends, the panel shows the scenario again.
 - The address names the scenario after a `~`: `#app~fifth-variant`, or `#app-GameEngine~fifth-variant` with a chosen class. A link opens it. «No scenario» takes the scenario out of the address.
+  A linked scenario whose positions do not load leaves the model alone on the page, and keeps its `~<id>` in the address, so a reload tries it again.
 - «No scenario» gives the page of the model alone, the same page as with no scenario file.
 - The legend lists the marks of the scenario while one shows.
 
@@ -441,7 +445,9 @@ Each folder frame and each zone frame has its label room `lb` as `[x, y, w, h]`.
 Each band has the label room `lb` of its band label as `[x, y, w, h]`, at the top left corner of the band.
 
 The page loads the two data files of a repository with a relative `fetch`.
-It also asks for the scenario file. A missing file gives no scenario, and the browser logs one 404 for it. The positions of a scenario load when the reader picks it.
+It also asks for the scenario file. Only a missing file (404) gives no scenario, and the browser logs one 404 for it.
+Another failure, such as a network error, another status or a body that is not JSON, shows the model with no scenario and a status line. The next load of that repository asks again.
+The positions of a scenario load when the reader picks it.
 The repository switch has one button per model, in the order of the arguments, and the first model opens by default.
 The link key of a repository is its name without the `hexablock-` prefix, for example `app` in `#app-GameEngine`.
 `--artifact` writes the page as `diagrama-clases-hexablock.html` instead: the same page as a fragment with no doctype, `html`, `head` or `body` tag, for a claude.ai artifact. The data files stay the same.
@@ -467,6 +473,7 @@ After `merge.mjs`, it runs `scenarios.mjs` on each product that has `docs/archit
 `scenarios.mjs` writes its output next to the models, so the build finds it and the page lists the scenarios of that product.
 After the build, it runs `page/export.mjs` into `<site>/scenarios/`, so the site publishes `scenarios/<repo key>-<scenario id>.png` (see «Render», «Scenario images»).
 With no scenario file in either product, that step needs no browser, writes nothing and ends with exit code 0.
+A failed export stops the build before the deploy, so the site keeps its last good version, as a model violation does.
 No product repository commits its model, so the site always shows the code of `main` at the time of the build.
 
 | Start | When |

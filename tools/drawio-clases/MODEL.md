@@ -149,6 +149,7 @@ Rules:
 2. The `file` of an added box is only the place of a new file. The `folders` of `classes.config.json` give its layer and its part, as they do for a code type in `merge.mjs`. The longest folder path that holds the file wins.
 3. With no violation, `scenarios.mjs` writes `<repo>.scenarios.json`, where `<repo>` is the `repo` of the model.
    It holds `{ "scenarios": [] }` with the scenarios of the file, and each added box also has its `layer` and its `part`.
+   Each `file` of `edits` has its normalized repository-relative path there, the form of the `file` of a type.
 
 ## Invariants
 

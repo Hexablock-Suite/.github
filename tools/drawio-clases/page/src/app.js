@@ -34,6 +34,8 @@
   let sel = null, hl = null;
   // data holds the loaded repository: its model, its positions and its scenarios. scen is the shown scenario, or null.
   let data = null, scen = null;
+  // keepSc is the id of a linked scenario that did not load. The address keeps it, so a reload tries it again.
+  let keepSc = null;
   let boxEl = new Map(), lineEl = new Map(), titles = [], zones = [], bandTags = [], stLines = [];
 
   // edgeKind sorts an edge into structure, attribute use or other use. isAttr comes from box-text.js.
@@ -1215,7 +1217,7 @@
   }
   // setHash writes the repository, the chosen type and the shown scenario. Only ASCII letters, digits, hyphens and «~» go in.
   function setHash(id) {
-    const h = '#' + repo + (id && /^[A-Za-z0-9]+$/.test(id) ? '-' + id : '') + (scen ? '~' + scen.id : '');
+    const h = '#' + repo + (id && /^[A-Za-z0-9]+$/.test(id) ? '-' + id : '') + (scen ? '~' + scen.id : keepSc ? '~' + keepSc : '');
     if (location.hash === h) return;
     try { history.replaceState(null, '', location.pathname + location.search + h); } catch { /* The hash is optional. */ }
   }
@@ -1227,15 +1229,21 @@
   }
 
   const getJSON = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(url + ' ' + r.status); return r.json(); });
-  // The scenario file of a repository is optional. A missing file gives no scenario.
-  const scenariosOf = (r) => fetch(REPOS[r] + '.scenarios.json').then((x) => (x.ok ? x.json() : null)).then((d) => (d && Array.isArray(d.scenarios) ? d.scenarios : [])).catch(() => []);
+  // The scenario file of a repository is optional. Only a missing file (404) gives no scenario.
+  // Another failure (the network, another status, a body that is not a scenario file) gives null.
+  const scenariosOf = (r) => fetch(REPOS[r] + '.scenarios.json')
+    .then((x) => (x.status === 404 ? { scenarios: [] } : x.ok ? x.json() : null))
+    .then((d) => (d && Array.isArray(d.scenarios) ? d.scenarios : null))
+    .catch(() => null);
   // A data set loads once. A failed load is forgotten, so a later try fetches again.
+  // A failed load of the scenario file still shows the model, with no scenario. That set is forgotten too.
   const sets = new Map();
   function dataOf(r) {
     if (!sets.has(r)) {
       const p = Promise.all([getJSON(REPOS[r] + '.model.json'), getJSON(REPOS[r] + '.positions.json'), scenariosOf(r)])
-        .then(([m, p, scenarios]) => ({ m, p, scenarios }));
-      p.catch(() => sets.delete(r));
+        .then(([m, p, scenarios]) => ({ m, p, scenarios: scenarios || [], scenariosFailed: !scenarios }));
+      const forget = () => { if (sets.get(r) === p) sets.delete(r); };
+      p.then((d) => { if (d.scenariosFailed) forget(); }, forget);
       sets.set(r, p);
     }
     return sets.get(r);
@@ -1299,8 +1307,11 @@
   }
 
   // present shows the scenario s with its positions p, or the plain model for a null s.
-  function present(s, p, id) {
+  // keep names a linked scenario that did not load, for the address. present ends every load, so the stage is no longer busy.
+  function present(s, p, id, keep = null) {
+    stage.removeAttribute('aria-busy');
     scen = s;
+    keepSc = s ? null : keep;
     $('#sc').value = s ? s.id : '';
     show(s ? scenarioModel(data.m, s) : data.m, p, id);
   }
@@ -1329,8 +1340,9 @@
     storeRepo(r);
     data = d;
     fillScenarios();
-    present(sp ? s : null, sp || d.p, id);
-    $('#status').textContent = sp ? 'Scenario ' + s.title + ' shown.' : s ? 'The scenario did not load. Reload the page.' : 'Repository ' + d.m.repo + ' loaded. ' + typesText(d.m.types.length) + '.';
+    present(sp ? s : null, sp || d.p, id, (s && !sp) || d.scenariosFailed ? sc : null);
+    $('#status').textContent = sp ? 'Scenario ' + s.title + ' shown.' : s ? 'The scenario did not load. Reload the page.'
+      : d.scenariosFailed ? 'The scenarios did not load. Reload the page.' : 'Repository ' + d.m.repo + ' loaded. ' + typesText(d.m.types.length) + '.';
   }
 
   // openScenario shows one scenario of the loaded repository, or the plain model for a null id.

@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -177,6 +177,46 @@ test('scenarios: each violation gives one line', () => {
       'scenario square-rules: unchanged type WebServer sits in "src/infrastructure/web-server.ts", a file of edits',
     ],
   );
+});
+
+test('scenarios: two added boxes with one name in one scenario are a violation', () => {
+  expectViolations(change((s) => s.adds.push({ ...s.adds[0] })), ['scenario square-rules: added box SquareRules is added twice']);
+});
+
+test('scenarios: the written file gives each edited file as a normalized repository-relative path', () => {
+  const { r, out } = run(change((s) => {
+    s.edits[0].file = './src/infrastructure/../infrastructure/web-server.ts';
+  }));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const written = JSON.parse(readFileSync(path.join(out, 'mini.scenarios.json'), 'utf8'));
+  assert.deepEqual(written.scenarios[0].edits, [{ file: 'src/infrastructure/web-server.ts', change: 'one entry in the rules list' }]);
+  // The check of an unchanged type compares the same normalized path.
+  expectViolations(change((s) => {
+    s.edits[0].file = './src/infrastructure/web-server.ts';
+    s.unchanged.push('WebServer');
+  }), ['scenario square-rules: unchanged type WebServer sits in "src/infrastructure/web-server.ts", a file of edits']);
+});
+
+test('scenarios: an added box of kind component passes, because component is a kind of MODEL.md «Type»', () => {
+  const { r, out } = run(change((s) => {
+    s.adds[0].kind = 'component';
+  }));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(JSON.parse(readFileSync(path.join(out, 'mini.scenarios.json'), 'utf8')).scenarios[0].adds[0].kind, 'component');
+});
+
+test('scenarios: an input that is missing or is not JSON gives exactly one error line, exit 1 and no file', () => {
+  const bad = tmp('bad.json');
+  writeFileSync(bad, '{\n  "scenarios": [\n    nope\n  ]\n}\n');
+  for (const [args, file] of [[[bad, MINI, REPO], bad], [[tmp('missing.json'), MINI, REPO], null], [[SCENARIOS, bad, REPO], bad]]) {
+    const out = tmp('out');
+    const r = spawnSync(process.execPath, [path.join(DIR, 'scenarios.mjs'), ...args, out], { cwd: DIR, encoding: 'utf8' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(r.stdout, '');
+    assert.equal(lines(r.stderr).length, 1, r.stderr);
+    assert.ok(r.stderr.startsWith(`error: ${file ?? args[0]}: `), r.stderr);
+    assert.equal(existsSync(out), false);
+  }
 });
 
 test('scenarios: a wrong argument count prints the usage and exits 2', () => {

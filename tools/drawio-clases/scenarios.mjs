@@ -17,11 +17,16 @@ import { placeFile, readConfig } from './merge.mjs';
 const USAGE = 'usage: node scenarios.mjs <scenarios.json> <model.json> <repo-root> <out-dir>';
 
 // The kinds of a type in MODEL.md, «Type».
-const KINDS = new Set(['class', 'interface', 'union', 'type', 'enum', 'const']);
+const KINDS = new Set(['class', 'interface', 'union', 'type', 'enum', 'const', 'component']);
 const ID = /^[a-z0-9-]+$/;
 const HERITAGE = ['implements', 'extends'];
 const isText = (v) => typeof v === 'string' && v !== '';
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+// repoPath gives the normalized repository-relative form of a path, for example src/x.ts for ./src/x.ts.
+// The model gives the file of a type in that form, so the page can compare the two as text.
+const repoPath = (file) => path.posix.normalize(file);
+// firstLine cuts an error message at its first line break. A JSON parser message can quote several lines of the input.
+const firstLine = (text) => String(text).split('\n')[0];
 
 // A file of edits exists when it is a file inside the repository root.
 function existsIn(root, file) {
@@ -81,8 +86,11 @@ export function checkScenarios(file, model, cfg, repoRoot) {
     for (const x of unchanged) if (!typeIds.has(x)) say(`unchanged names "${x}", which is not a type id of the model`);
 
     // An added box is new, and a folder of the config holds its file (rule 2).
+    const addedNames = new Set();
     for (const a of listOf('adds')) {
       if (!isObject(a) || !isText(a.name)) continue;
+      if (addedNames.has(a.name)) say(`added box ${a.name} is added twice`);
+      addedNames.add(a.name);
       for (const h of HERITAGE) {
         if (isText(a[h]) && !typeIds.has(a[h])) say(`added box ${a.name} ${h} "${a[h]}", which is not a type id of the model`);
       }
@@ -94,7 +102,7 @@ export function checkScenarios(file, model, cfg, repoRoot) {
     const edited = new Set();
     for (const e of listOf('edits')) {
       if (!isObject(e) || !isText(e.file)) continue;
-      edited.add(path.posix.normalize(e.file));
+      edited.add(repoPath(e.file));
       if (!existsIn(repoRoot, e.file)) say(`edits the file "${e.file}", which does not exist in the repository`);
     }
 
@@ -109,6 +117,7 @@ export function checkScenarios(file, model, cfg, repoRoot) {
 }
 
 // Return the scenarios with the layer and the part of each added box, from the folders of the config.
+// Each edited file gets its normalized repository-relative path, so the check, the build and the page compare the same text.
 export function placeScenarios(file, cfg) {
   return file.scenarios.map((s) => ({
     ...s,
@@ -116,7 +125,17 @@ export function placeScenarios(file, cfg) {
       const { layer, part } = placeFile(cfg.folders, a.file);
       return { ...a, layer, part };
     }),
+    edits: s.edits.map((e) => ({ ...e, file: repoPath(e.file) })),
   }));
+}
+
+// readJson reads one JSON input. A failure gives one error text that names the file.
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    throw new Error(`${file}: ${firstLine(err.message)}`);
+  }
 }
 
 function main(argv) {
@@ -127,11 +146,11 @@ function main(argv) {
   const [scenariosPath, modelPath, repoRoot, outDir] = argv;
   let file, model, cfg;
   try {
-    file = JSON.parse(fs.readFileSync(scenariosPath, 'utf8'));
-    model = JSON.parse(fs.readFileSync(modelPath, 'utf8'));
+    file = readJson(scenariosPath);
+    model = readJson(modelPath);
     ({ cfg } = readConfig(repoRoot));
   } catch (err) {
-    console.error(`error: ${err.message}`);
+    console.error(`error: ${firstLine(err.message)}`);
     return 1;
   }
   if (!Array.isArray(model?.types) || !Array.isArray(cfg?.folders)) {

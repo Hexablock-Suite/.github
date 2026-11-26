@@ -96,8 +96,12 @@ async function main(argv) {
     const page = await browser.page();
     for (const s of scenarios) images.push({ file: path.join(out, `${s.key}-${s.id}.png`), title: s.title, ...(await shoot(page, server.base, s)) });
   } finally {
-    if (browser) await browser.close();
-    server.close();
+    // The server closes even when the browser does not close cleanly.
+    try {
+      if (browser) await browser.close();
+    } finally {
+      server.close();
+    }
   }
   mkdirSync(out, { recursive: true });
   for (const im of images) {

@@ -346,3 +346,78 @@ test('#7: the address names the scenario, so a link opens it', { skip }, async (
   await pick('');
   assert.equal(await page.eval('location.hash'), '#mini');
 });
+
+// withFetch runs a step with a page script that wraps fetch, from the next page load on. The script goes away after the step.
+async function withFetch(source, step) {
+  const { identifier } = await page.send('Page.addScriptToEvaluateOnNewDocument', { source });
+  try {
+    await step();
+  } finally {
+    await page.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
+  }
+}
+// openMini loads the page with the mini model and waits until it shows.
+async function openMini(hash = '#mini') {
+  await page.go('about:blank');
+  await page.go(base + hash);
+  await page.wait("document.documentElement.dataset.ready === '1' && document.documentElement.dataset.repo === 'mini'");
+}
+const choose = (id) => page.eval(`(() => { const s = document.getElementById('sc'); s.value = ${JSON.stringify(id)}; s.dispatchEvent(new Event('change')); })()`);
+const busy = () => page.eval("document.getElementById('stage').getAttribute('aria-busy')");
+const statusText = () => page.eval("document.getElementById('status').textContent");
+
+test('#7: a newer choice that replaces a pending scenario load leaves the stage not busy', { skip }, async () => {
+  const slow = `(() => { const f = window.fetch; window.fetch = (u, ...a) => String(u).includes('scenario-file-store.positions')
+    ? new Promise((r) => setTimeout(r, 1500)).then(() => f(u, ...a)) : f(u, ...a); })()`;
+  await withFetch(slow, async () => {
+    await openMini();
+    await choose('file-store');
+    await page.sleep(100);
+    assert.equal(await busy(), 'true');
+    await choose('');
+    await page.sleep(2000);
+    assert.equal(await busy(), null);
+    assert.equal(await page.eval('document.documentElement.dataset.scenario'), '');
+    assert.equal(await page.eval('location.hash'), '#mini');
+  });
+});
+
+test('#7: a linked scenario whose positions do not load keeps its address, so a reload tries it again', { skip }, async () => {
+  const failing = `(() => { const f = window.fetch; window.fetch = (u, ...a) => String(u).includes('scenario-file-store.positions')
+    ? Promise.resolve(new Response('', { status: 500 })) : f(u, ...a); })()`;
+  await withFetch(failing, async () => {
+    await openMini('#mini~file-store');
+    assert.equal(await page.eval('document.documentElement.dataset.scenario'), '');
+    assert.equal(await page.eval('location.hash'), '#mini~file-store');
+    assert.equal(await statusText(), 'The scenario did not load. Reload the page.');
+    assert.equal(await busy(), null);
+  });
+});
+
+test('#7: only a missing scenario file means no scenario; a failed load says so and is tried again later', { skip }, async () => {
+  // The first request of the scenario file of mini fails with 500, the second one gets a body that is not JSON. The third one reaches the server.
+  const failing = `(() => { const f = window.fetch; let n = 0; window.fetch = (u, ...a) => {
+    if (!String(u).endsWith('mini.scenarios.json')) return f(u, ...a);
+    n += 1;
+    if (n === 1) return Promise.resolve(new Response('', { status: 500 }));
+    if (n === 2) return Promise.resolve(new Response('{', { status: 200 }));
+    return f(u, ...a);
+  }; })()`;
+  const options = () => page.eval("[...document.querySelectorAll('#sc option')].map((o) => o.value)");
+  const openRepo = async (r) => {
+    await page.eval(`document.querySelector('#repo button[data-r="${r}"]').click()`);
+    await page.wait(`document.documentElement.dataset.repo === '${r}' && !document.getElementById('stage').hasAttribute('aria-busy')`, 60000);
+  };
+  await withFetch(failing, async () => {
+    await openMini();
+    assert.deepEqual(await options(), ['']);
+    assert.equal(await statusText(), 'The scenarios did not load. Reload the page.');
+    await openRepo('wide');
+    await openRepo('mini');
+    assert.deepEqual(await options(), ['']);
+    assert.equal(await statusText(), 'The scenarios did not load. Reload the page.');
+    await openRepo('wide');
+    await openRepo('mini');
+    assert.deepEqual(await options(), ['', 'square-rules', 'file-store']);
+  });
+});

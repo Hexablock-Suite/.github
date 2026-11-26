@@ -11,13 +11,16 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 // findChrome returns the first browser binary that exists, or null.
-// It looks for CHROME_BIN, then for the Playwright browsers, then for a browser on the PATH.
+// It looks for CHROME_BIN, then for the Playwright browsers, then for a browser on the PATH, in the order of render.mjs.
 export function findChrome() {
   const found = [];
   if (process.env.CHROME_BIN) found.push(process.env.CHROME_BIN);
   const pw = path.join(homedir(), '.cache', 'ms-playwright');
   if (existsSync(pw)) {
     const dirs = readdirSync(pw).sort().reverse();
+    for (const d of dirs.filter((x) => x.startsWith('chromium_headless_shell-'))) {
+      found.push(path.join(pw, d, 'chrome-headless-shell-linux64', 'chrome-headless-shell'));
+    }
     for (const d of dirs.filter((x) => x.startsWith('chromium-'))) found.push(path.join(pw, d, 'chrome-linux64', 'chrome'));
   }
   for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {

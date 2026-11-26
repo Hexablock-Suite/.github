@@ -4,10 +4,10 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { findChrome } from '../cdp.mjs';
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -122,4 +122,15 @@ test('#7: a wrong argument count or a folder with no built page gives one error 
   const r = run([empty, tmp('out')]);
   assert.equal(r.status, 1);
   assert.equal(r.stderr, `error: ${path.join(empty, 'index.html')} is missing: build the site first\n`);
+});
+
+test('findChrome finds the Playwright headless shell, as render.mjs does', () => {
+  const home = tmp('home');
+  const bin = path.join(home, '.cache', 'ms-playwright', 'chromium_headless_shell-1200', 'chrome-headless-shell-linux64', 'chrome-headless-shell');
+  mkdirSync(path.dirname(bin), { recursive: true });
+  writeFileSync(bin, '');
+  const code = `import { findChrome } from ${JSON.stringify(pathToFileURL(path.join(DIR, 'cdp.mjs')).href)}; console.log(findChrome());`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', env: { ...process.env, CHROME_BIN: '', HOME: home, PATH: home } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, bin + '\n');
 });
