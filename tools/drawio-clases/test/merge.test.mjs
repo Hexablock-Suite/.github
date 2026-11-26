@@ -48,18 +48,21 @@ const codeType = (name, kind = 'class') => ({
 });
 const code = (types, edges) => ({ repo: 'mini', head: 'abc1234', types, edges });
 
-// A view with two boxes in layer 2 and one line between them.
+// The zone fill of each Clean layer, as views.mjs reads it.
+const ZONE_FILL = { 1: '#f9f4dc', 2: '#efe7f8', 3: '#e2ebf8', 4: '#cfdcf3' };
+
+// A view with two boxes in one layer zone and one line between them. The zone is layer 2 unless layer names another one.
 // The holder box sits on the left and the target box on the right.
 // A diamond line has its marker at the holder. A use line has its arrowhead at the target.
 // The texts sit just above the line, so they label it.
-function viewHtml(from, to, kind, texts = []) {
+function viewHtml(from, to, kind, texts = [], layer = 2) {
   const box = (n, x) => `<!-- Class: ${n} -->\n<rect x="${x}" y="100" width="120" height="60" fill="#ffffff"/>\n<text x="${x + 60}" y="118" font-weight="600">${n}</text>`;
   const marker = kind === 'use' ? 'marker-end="url(#m-open)"' : `marker-start="url(#m-${kind === 'aggregation' ? 'diamond-hollow' : 'diamond-filled'})"`;
   const labels = texts.map((t, i) => `<text x="${200 + i * 50}" y="126">${t}</text>`).join('\n');
   return [
     '<svg><defs></defs>',
-    '<!-- Layer zone 2 -->',
-    '<rect x="-20" y="80" width="480" height="100" fill="#efe7f8"/>',
+    `<!-- Layer zone ${layer} -->`,
+    `<rect x="-20" y="80" width="480" height="100" fill="${ZONE_FILL[layer]}"/>`,
     box(from, 0),
     box(to, 300),
     `<!-- ${from} to ${to} -->`,
@@ -68,11 +71,11 @@ function viewHtml(from, to, kind, texts = []) {
     '</svg>',
   ].join('\n');
 }
-function view(name, from, to, kind, texts = []) {
+function view(name, from, to, kind, texts = [], layer = 2) {
   const dir = tmp('views');
   mkdirSync(dir);
   const file = path.join(dir, `${name}.html`);
-  writeFileSync(file, viewHtml(from, to, kind, texts));
+  writeFileSync(file, viewHtml(from, to, kind, texts, layer));
   return parseView(file);
 }
 
@@ -459,4 +462,41 @@ test('A2: a route of app/ with no folder in the config prints one warning line, 
   assert.deepEqual(screen, [{ kind: 'class', status: 'planned', file: null }]);
   assert.deepEqual(edgesOf(model, 'GameScreen', 'GamePresenter').map(pick), [{ kind: 'use', label: 'presenter', pattern: null, status: 'planned' }]);
   assert.match(run.stdout, / 0 violation\(s\)$/m);
+});
+
+// splitConfig has the two parts of the split of Hexablock-Suite/hexablock-app#394 and Hexablock-Suite/hexablock-api#198.
+// The part adapters holds layer 3 and the part infrastructure holds layer 4.
+// The views map keeps the prefix ad- and the view map-4-adapters on the part adapters, as both product configs do.
+const splitConfig = () => ({
+  repo: 'mini',
+  parts: [
+    { id: 'adapters', title: 'Adapters', layers: [3] },
+    { id: 'infrastructure', title: 'Infrastructure', layers: [4] },
+  ],
+  views: { 'ad-': 'adapters', 'map-4-adapters': 'adapters' },
+  folders: [
+    { path: 'src/adapters/', layer: 3, part: 'adapters' },
+    { path: 'src/infrastructure/', layer: 4, part: 'infrastructure' },
+  ],
+  patterns: {},
+});
+
+test('#6: a planned layer 4 type of a view mapped to a layer 3 part goes to the part of layer 4', () => {
+  const repo = { ...codeType('HttpRepo'), file: 'src/adapters/http-repo.ts' };
+  const views = [
+    view('ad-1-storage', 'LocalStore', 'HttpRepo', 'use', ['save()'], 4),
+    view('map-4-adapters', 'SystemClock', 'HttpRepo', 'use', ['now()'], 4),
+    view('ad-2-http', 'HttpGateway', 'HttpRepo', 'use', ['send()'], 3),
+  ];
+  const { model } = merge(code([repo], []), views, splitConfig());
+  const where = (id) => {
+    const t = model.types.find((x) => x.id === id);
+    return t && { layer: t.layer, part: t.part, status: t.status };
+  };
+  assert.deepEqual(where('LocalStore'), { layer: 4, part: 'infrastructure', status: 'planned' });
+  assert.deepEqual(where('SystemClock'), { layer: 4, part: 'infrastructure', status: 'planned' });
+  // A planned layer 3 type of a view of the same prefix keeps the part adapters.
+  assert.deepEqual(where('HttpGateway'), { layer: 3, part: 'adapters', status: 'planned' });
+  // A code type takes its part from its folder.
+  assert.deepEqual(where('HttpRepo'), { layer: 3, part: 'adapters', status: 'code' });
 });

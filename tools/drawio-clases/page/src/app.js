@@ -2,12 +2,16 @@
   'use strict';
   const $ = (s) => document.querySelector(s);
   const cv = $('#cv'), vp = $('#vp'), stage = $('#stage'), panel = $('#panel'), app = $('#app');
-  const LAYER = { 1: 'Entities', 2: 'Use cases', 3: 'Interface adapters', 4: 'Frameworks and drivers' };
+  // The band names come from layout.mjs, through the build: the Clean name of the layer, then the name of its source folder.
+  // The band labels, the layer chip of the side panel and the layer tab of the highlight menu use them.
+  const LAYER = LAYER_NAMES;
   const KIND = { class: 'class', interface: 'interface', type: 'type alias', union: 'union', const: 'constant', enum: 'enumeration', component: 'component' };
   // Zoom levels. Far shows zones, middle shows names, near shows members and labels.
   // The values come from screenshots: at 0.44 a boosted name reads at about 8px.
   const LOD1 = 0.44, LOD2 = 0.9;
-  const BAND_TOP = 168; // Top padding of a band in positions.json.
+  // A band label sits TAG_LEFT pixels right of the band edge. It keeps TAG_GAP pixels to the edges of its room.
+  // A label that its room does not hold shrinks, down to TAG_MIN of its size, and then hides.
+  const TAG_LEFT = 16, TAG_GAP = 4, TAG_MIN = 0.6;
   const fine = matchMedia('(hover: hover) and (pointer: fine)').matches;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const narrow = () => matchMedia('(max-width: 720px)').matches;
@@ -334,21 +338,26 @@
     if (scaled) { cancelAnimationFrame(titleFrame); updateTitles(); } else if (!titleFrame) titleFrame = requestAnimationFrame(updateTitles);
   }
 
-  // placeTags puts each band label in the top padding of its band.
+  // placeTags puts each band label in the label room `lb` of its band, in the middle of its height.
+  // The layout sizes the room for the label at the fit zoom of a 1440 by 900 window, so there the label covers no folder.
+  // Below that zoom, the label shrinks to fit its room, down to TAG_MIN, and then hides.
   // On the far map, a label also sticks to the top left of the visible part of its band.
   // At reading zoom it scrolls with the band, so it never covers a box.
   function placeTags() {
     const vh = stage.clientHeight, map = k < LOD1;
     for (const t of bandTags) {
+      const [, , lw, lh] = t.b.lb;
       const top = t.b.y * k + ty, bottom = (t.b.y + t.b.h) * k + ty;
-      const x0 = t.b.x * k + tx + 16;
+      const s = Math.min(1, (lw * k - TAG_LEFT - TAG_GAP) / t.w, (lh * k - 2 * TAG_GAP) / t.h);
+      const w = t.w * s, h = t.h * s;
+      const x0 = t.b.x * k + tx + TAG_LEFT;
       const left = map ? Math.max(x0, 12) : x0;
-      const y0 = top + Math.max(4, (BAND_TOP * k - t.h) / 2);
-      const y = Math.min(map ? Math.max(y0, 10) : y0, bottom - t.h - 10);
-      const show = bottom - top > t.h + 16 && bottom > 0 && top < vh && y + t.h > 0;
+      const y0 = top + (lh * k - h) / 2;
+      const y = Math.min(map ? Math.max(y0, 10) : y0, bottom - h - 10);
+      const show = s >= TAG_MIN && bottom - top > h + 16 && bottom > 0 && top < vh && y + h > 0;
       t.el.hidden = !show;
-      if (show) t.el.style.transform = 'translate(' + left.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
-      t.box = show ? [left, y, left + t.w, y + t.h] : null;
+      if (show) t.el.style.transform = 'translate(' + left.toFixed(1) + 'px,' + y.toFixed(1) + 'px)' + (s < 1 ? ' scale(' + s.toFixed(3) + ')' : '');
+      t.box = show ? [left, y, left + w, y + h] : null;
     }
   }
 

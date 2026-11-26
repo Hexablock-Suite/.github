@@ -4,7 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,11 +15,39 @@ const MINI = path.join(DIR, '..', 'fixtures', 'mini.model.json');
 const skip = findChrome() ? false : 'no Chromium on this machine';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.json': 'application/json' };
 
+// wideModel has 960 classes: eight folders of 30 classes in each layer. Chains of extends make each folder tall.
+// Its canvas is about as large as the canvas of the App model, so the fit zoom of a 1440 by 900 window is under 0.1.
+// The first folder of each band sits at the left edge of the band, under the band label.
+const WIDE_TYPES = 960;
+function wideModel() {
+  const types = [];
+  const edges = [];
+  for (const layer of [4, 3, 2, 1]) {
+    for (let f = 0; f < 8; f++) {
+      for (let i = 0; i < 30; i++) {
+        const id = `L${layer}F${f}T${i}`;
+        types.push({
+          id, name: id, kind: 'class', abstract: false, status: 'code', sprint: null, stereotypes: [],
+          layer, part: 'core', file: `src/layer${layer}/folder${f}/${id.toLowerCase()}.ts`, line: 1, typeParams: [],
+          attrs: [], ops: [{ vis: '+', name: 'run', typeParams: [], params: [], ret: 'void', abstract: false, static: false }],
+          values: [], alias: null, views: [], requirement: null,
+        });
+        if (i % 3) edges.push({ from: id, to: `L${layer}F${f}T${i - 1}`, kind: 'extends', label: null, pattern: null, status: 'code', views: [] });
+      }
+    }
+  }
+  edges.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+  return { repo: 'hexablock-wide', head: '0000000', parts: [{ id: 'core', title: 'Core' }], types, edges };
+}
+
 let scratch, server, browser, page, base;
 before(async () => {
   if (skip) return;
   scratch = mkdtempSync(path.join(tmpdir(), 'drawio-clases-zoom-test-'));
-  const r = spawnSync(process.execPath, [path.join(DIR, 'build.mjs'), MINI, '--out', scratch], { cwd: DIR, encoding: 'utf8' });
+  // The site holds the mini model first, so the page opens it by default, and the wide model second.
+  const wide = path.join(scratch, 'wide.json');
+  writeFileSync(wide, JSON.stringify(wideModel()));
+  const r = spawnSync(process.execPath, [path.join(DIR, 'build.mjs'), MINI, wide, '--out', scratch], { cwd: DIR, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   // The page reads its data files with fetch, and Chromium allows no fetch from a file URL.
   server = createServer((req, res) => {
@@ -133,4 +161,68 @@ test('keyboard: a box that takes the focus from the Tab key still comes into vie
   assert.equal(await page.eval("!!document.activeElement.closest('.box')"), true, 'the Tab key did not reach a box');
   // ensureVisible centers a focused box at the near level, 0.9, when the page is at the far level.
   assert.ok(Math.abs((await drawn()).k - 0.9) < 1e-3, `scale ${(await drawn()).k}`);
+});
+
+// LAYER_LABELS are the four band labels of the page, layer 4 first.
+const LAYER_LABELS = [
+  'Layer 4 · Frameworks and drivers / Infrastructure',
+  'Layer 3 · Interface adapters / Adapters',
+  'Layer 2 · Use cases / Application',
+  'Layer 1 · Entities / Domain',
+];
+
+test('#6: the band labels, the layer chip of the side panel and the layer tab of the highlight menu show both names of each layer', { skip }, async () => {
+  await open();
+  assert.deepEqual(await page.eval("[...document.querySelectorAll('#tags .tag')].map((el) => el.textContent)"), LAYER_LABELS);
+  await page.eval("document.getElementById('hl-btn').click()");
+  await page.eval("document.querySelector('.hl-tabs button[data-tab=\"l\"]').click()");
+  assert.deepEqual(await page.eval("[...document.querySelectorAll('#hl-opts .opt span:first-child')].map((el) => el.textContent)"), LAYER_LABELS);
+  // A link with a type name opens the side panel of that type. Engine is a type of layer 1.
+  await page.go('about:blank');
+  await page.go(base + '#mini-Engine');
+  await page.wait("!document.getElementById('panel').hidden");
+  assert.equal(await page.eval("document.querySelector('#p-where .chip-l').textContent"), LAYER_LABELS[3]);
+});
+
+test('#6: at the fit zoom of a 1440 × 900 window, no band label overlaps a group frame of its band', { skip }, async () => {
+  await page.viewport(1440, 900);
+  try {
+    await open();
+    await page.eval("document.querySelector('#repo button[data-r=\"wide\"]').click()");
+    await page.wait(`document.querySelectorAll('#boxes .box').length === ${WIDE_TYPES}`);
+    await page.eval("document.getElementById('fit').click()");
+    await page.sleep(500);
+    await settle();
+    const { k } = await drawn();
+    assert.ok(k < 0.1, `the fit zoom ${k} of the wide model is not under 0.1`);
+    const seen = await page.eval(`(() => {
+      const box = (el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+      const layerOf = (el) => +[...el.classList].find((c) => /^L\\d$/.test(c)).slice(1);
+      const tags = [...document.querySelectorAll('#tags .tag')].map((el) => ({ layer: layerOf(el), hidden: el.hidden, ...box(el) }));
+      const frames = [...document.querySelectorAll('#frames rect.fr-g')].map((el) => ({ f: el.dataset.f, layer: layerOf(el), ...box(el) }));
+      const far = Object.fromEntries([...document.querySelectorAll('#titles .fold')].map((g) => {
+        const zl = g.querySelector('.zl');
+        return [g.dataset.f, { off: zl.classList.contains('off'), l: zl.getBoundingClientRect().left }];
+      }));
+      return { tags, frames, far };
+    })()`);
+    assert.deepEqual(seen.tags.map((t) => [t.layer, t.hidden]), [[4, false], [3, false], [2, false], [1, false]]);
+    for (const tag of seen.tags) {
+      const frames = seen.frames.filter((f) => f.layer === tag.layer);
+      assert.ok(frames.length > 0, `band ${tag.layer} has no folder`);
+      // A frame under the label keeps a margin of 4 pixels, the margin of the label rooms of the page.
+      for (const f of frames) {
+        if (Math.min(f.r, tag.r) - Math.max(f.l, tag.l) <= 0) continue;
+        assert.ok(f.t - tag.b >= 4, `band ${tag.layer}: the label ends at ${tag.b.toFixed(1)}, the folder at ${f.l.toFixed(1)} starts at ${f.t.toFixed(1)}`);
+      }
+      // The folder at the left edge of the band shows its far label at the left end of its room.
+      const first = frames.reduce((a, b) => (b.l < a.l ? b : a));
+      assert.equal(seen.far[first.f].off, false, `band ${tag.layer}: the far label of the first folder hides`);
+      assert.ok(seen.far[first.f].l - first.l < 2, `band ${tag.layer}: the far label starts at ${seen.far[first.f].l.toFixed(1)}, the folder at ${first.l.toFixed(1)}`);
+    }
+  } finally {
+    // The page stores the chosen repository. The other tests open the mini model.
+    await page.eval("document.querySelector('#repo button[data-r=\"mini\"]').click()");
+    await page.viewport(1200, 800);
+  }
 });

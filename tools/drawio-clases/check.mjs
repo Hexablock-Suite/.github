@@ -124,6 +124,7 @@ export function parseStyle(style = '') {
 
 // readPages returns each <diagram> with its cells.
 // A cell inside <object> or <UserObject> takes the attributes of that wrapper as data.
+// The cell map keeps the last cell of an id. `dupes` lists each id that more than one cell of the page has, with its count.
 export function readPages(root) {
   if (root.name !== 'mxfile') throw new Error(`the root element is <${root.name}>, not <mxfile>`);
   const pages = [];
@@ -132,6 +133,7 @@ export function readPages(root) {
     if (!model) throw new Error(`page "${diagram.attrs.name}" is compressed or empty`);
     const rootEl = model.children.find((c) => c.name === 'root');
     const cells = new Map();
+    const idCount = new Map();
     for (const el of rootEl?.children ?? []) {
       let cell;
       let mx;
@@ -149,9 +151,11 @@ export function readPages(root) {
       cell.points = (points?.children ?? []).filter((c) => c.name === 'mxPoint').map((p) => ({ x: Number(p.attrs.x ?? 0), y: Number(p.attrs.y ?? 0) }));
       const offset = geo?.children.find((c) => c.name === 'mxPoint' && c.attrs.as === 'offset');
       cell.labelOffset = { x: Number(offset?.attrs.x ?? 0), y: Number(offset?.attrs.y ?? 0) };
+      idCount.set(cell.id, (idCount.get(cell.id) ?? 0) + 1);
       cells.set(cell.id, cell);
     }
-    pages.push({ id: diagram.attrs.id, name: diagram.attrs.name, cells });
+    const dupes = [...idCount].filter(([, n]) => n > 1);
+    pages.push({ id: diagram.attrs.id, name: diagram.attrs.name, cells, dupes });
   }
   return pages;
 }
@@ -316,6 +320,11 @@ export function check(xmlText, model, dataStereotypes = [DATA_TYPE]) {
   if (!pages.length) {
     say('g', 'the file has no page');
     return out;
+  }
+  // (g) Each cell id appears once on its page. draw.io expects one cell for each id, so it can drop or merge a second one.
+  // A part over two layers gave two groups with one key, and so one cell id, on one page.
+  for (const page of pages) {
+    for (const [id, n] of page.dupes) say('g', `page "${page.name}" has ${n} cells with the id "${id}"`);
   }
 
   const types = new Map(model.types.map((t) => [t.id, t]));
