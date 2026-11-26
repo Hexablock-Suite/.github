@@ -8,7 +8,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { layoutModel } from './layout.mjs';
+import { LAYER_NAMES, layoutModel } from './layout.mjs';
 import { BOX_TEXT } from './text.mjs';
 import { VIEW_RULES } from './view.mjs';
 
@@ -97,7 +97,9 @@ export function pageHtml(repos, artifact) {
   const buttons = repos.map((r) => `        <button type="button" role="radio" aria-checked="false" data-r="${r.key}" data-file="${esc(r.repo)}">${esc(r.label)}</button>\n`).join('');
   const body = src('body.html').replace('<!-- repos -->\n', buttons);
   const headPart = src('head.html') + '<style>\n' + src('page.css') + '</style>\n';
-  const bodyPart = '\n' + body + '\n<script>\n' + BOX_TEXT + '</script>\n\n<script>\n' + VIEW_RULES + '</script>\n\n<script>\n' + src('app.js') + '</script>\n';
+  // The layout sizes the band label rooms from LAYER_NAMES, so the page takes its band names from the same map.
+  const names = '<script>\nconst LAYER_NAMES = ' + JSON.stringify(LAYER_NAMES) + ';\n</script>\n\n';
+  const bodyPart = '\n' + body + '\n<script>\n' + BOX_TEXT + '</script>\n\n<script>\n' + VIEW_RULES + '</script>\n\n' + names + '<script>\n' + src('app.js') + '</script>\n';
   if (artifact) return headPart + bodyPart;
   return '<!doctype html>\n<html lang="en">\n<head>\n' + headPart + '</head>\n<body>\n' + bodyPart + '</body>\n</html>\n';
 }

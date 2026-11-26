@@ -8,11 +8,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 // Layer colors come from layers.md of both repositories.
+// Each title gives the Clean name of the layer, then the name of its source folder.
 const LAYERS = {
-  4: { title: 'LAYER 4 · FRAMEWORKS AND DRIVERS', fill: '#cfdcf3', stroke: '#1e3a8a' },
-  3: { title: 'LAYER 3 · INTERFACE ADAPTERS', fill: '#e2ebf8', stroke: '#1d4ed8' },
-  2: { title: 'LAYER 2 · USE CASES', fill: '#efe7f8', stroke: '#7e22ce' },
-  1: { title: 'LAYER 1 · ENTITIES', fill: '#f9f4dc', stroke: '#b45309' },
+  4: { title: 'LAYER 4 · FRAMEWORKS AND DRIVERS / INFRASTRUCTURE', fill: '#cfdcf3', stroke: '#1e3a8a' },
+  3: { title: 'LAYER 3 · INTERFACE ADAPTERS / ADAPTERS', fill: '#e2ebf8', stroke: '#1d4ed8' },
+  2: { title: 'LAYER 2 · USE CASES / APPLICATION', fill: '#efe7f8', stroke: '#7e22ce' },
+  1: { title: 'LAYER 1 · ENTITIES / DOMAIN', fill: '#f9f4dc', stroke: '#b45309' },
 };
 const LAYER_ORDER = [4, 3, 2, 1];
 
