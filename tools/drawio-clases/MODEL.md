@@ -4,6 +4,7 @@ One JSON file per repository holds the class model.
 `extract.mjs` reads the code, `views.mjs` reads the class views, and `merge.mjs` joins both into the model.
 `gen.mjs` reads the model and writes one multi-page `.drawio` file.
 `check.mjs` reads the `.drawio` file and checks the notation rules.
+`scenarios.mjs` checks the scenario file of a repository against the model.
 This file is the contract between those scripts. Change it before you change the shape of the model.
 
 ## Top level
@@ -98,6 +99,51 @@ Rules:
    The model also decides the view frame of a type in a large group (README, «Pages»). The frames follow the first appearance of their view in the box order of the group.
 5. With no layout file, `gen.mjs` uses the computed order. The same model and the same layout file give the same bytes in every run.
 6. A layout file that is missing, is not JSON, or has another shape than this section gives stops `gen.mjs`. `gen.mjs` prints one `error:` line, writes no file and ends with exit code 1.
+
+## Scenario file
+
+The scenario file is optional. It lists the extensibility scenarios of one repository.
+A scenario says what a developer adds, implements and edits for one kind of change, and what stays the same.
+Each repository keeps it at `docs/architecture/scenarios.json`, next to `classes.config.json`.
+`scenarios.mjs` checks it against the model and the repository (README, «Scenarios»).
+
+```json
+{
+  "scenarios": [
+    {
+      "id": "fifth-variant",
+      "title": "A fifth variant: Hexa Fill",
+      "source": "docs/EXTENSIBILITY.md",
+      "extensionPoints": ["IVariantFactory", "BaseGameRules", "IScoringPolicy"],
+      "adds": [
+        { "name": "FillRules", "kind": "class", "stereotypes": [], "file": "src/domain/variants/hexa-fill/fill-rules.ts", "extends": "BaseGameRules" },
+        { "name": "FillScoring", "kind": "class", "stereotypes": [], "file": "src/domain/variants/hexa-fill/fill-scoring.ts", "implements": "IScoringPolicy" }
+      ],
+      "edits": [
+        { "file": "src/infrastructure/registered-games.ts", "change": "one entry in registeredGames()" }
+      ],
+      "unchanged": ["GameEngine", "GameFactory", "GamePresenter", "GameRegistry"]
+    }
+  ]
+}
+```
+
+| Field | Value |
+|---|---|
+| `id` | Unique in the file. Lowercase letters, digits and `-`. It names the image. |
+| `title` | The title of the scenario on the page and in the image. |
+| `source` | The document that gives the steps, repository-relative. |
+| `extensionPoints` | Type ids of the model that the scenario implements or extends. |
+| `adds` | The new boxes. `name`, `kind` and `stereotypes` as «Type» gives them. `file` is the path of the new file. `implements` or `extends` names a type id of the model. |
+| `edits` | The existing files that change, each with one line `change`. |
+| `unchanged` | Type ids of the model whose groups do not change. |
+
+Rules:
+
+1. A scenario finds existing code by type id, never by folder. A folder split moves a type to another group, and the scenario still finds it.
+2. The `file` of an added box is only the place of a new file. The `folders` of `classes.config.json` give its layer and its part, as they do for a code type in `merge.mjs`. The longest folder path that holds the file wins.
+3. With no violation, `scenarios.mjs` writes `<repo>.scenarios.json`, where `<repo>` is the `repo` of the model.
+   It holds `{ "scenarios": [] }` with the scenarios of the file, and each added box also has its `layer` and its `part`.
 
 ## Invariants
 

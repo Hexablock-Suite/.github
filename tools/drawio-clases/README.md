@@ -17,6 +17,7 @@ Each HexaBlock repository keeps its own files in `docs/architecture/`:
 | `classes.drawio` | the diagram that `gen.mjs` writes |
 | `classes.config.json` | the config of `merge.mjs`: folders and views to layers and parts, patterns, stereotypes |
 | `classes.layout.json` | the layout file: the fixed order of groups and boxes (`MODEL.md`, «Layout file») |
+| `scenarios.json` | the extensibility scenarios: what one kind of change adds, implements and edits (`MODEL.md`, «Scenario file») |
 
 ## Quick start
 
@@ -81,6 +82,7 @@ The layout keeps order only, because a fixed position breaks when a new class ar
 | 5 | `check.mjs` | the `.drawio` file and the model | the notation violations, exit 1 when there is one |
 | 6 | `render.mjs` | the `.drawio` file | one PNG per page, for a visual look |
 | - | `pin.mjs` | a `.drawio` file that a person edited, and the model | the layout file |
+| - | `scenarios.mjs` | the scenario file, the model and the repository | the scenario violations, exit 1 when there is one; else `<repo>.scenarios.json` |
 
 ## Commands
 
@@ -91,6 +93,7 @@ node gen.mjs <model.json> <out.drawio> [--layout <layout.json>]
 node pin.mjs <edited.drawio> <model.json> <layout.json>
 node check.mjs <out.drawio> <model.json> [<config.json>]
 node render.mjs <out.drawio> <png-dir>
+node scenarios.mjs <scenarios.json> <model.json> <repo-root> <out-dir>
 ```
 
 `merge.mjs` reads `<repo-root>/docs/architecture/classes.config.json` when no `--config` is given.
@@ -217,6 +220,40 @@ node gen.mjs fixtures/mini.model.json /tmp/mini.drawio
 node check.mjs /tmp/mini.drawio fixtures/mini.model.json         # exit 0
 ```
 
+## Scenarios
+
+A scenario says what a developer adds, implements and edits for one kind of change, and what stays the same.
+Each repository can keep its scenarios in `docs/architecture/scenarios.json`. `MODEL.md`, «Scenario file», gives the shape of the file.
+A scenario names existing code by type id, so it names only types that the model has.
+
+`scenarios.mjs` checks the file against the model and the repository:
+
+```sh
+node scenarios.mjs <repo>/docs/architecture/scenarios.json <out>/<repo-name>.model.json <repo> <out>
+```
+
+It reads `<repo>/docs/architecture/classes.config.json`, as `merge.mjs` does.
+It prints one line for each violation, then the count, and exits 1. Then it writes no file. A scenario fails when:
+
+- `extensionPoints`, `unchanged`, `implements` or `extends` names a type id that the model does not have;
+- an added box has the name of a type that the model has, or a `file` that no folder of `classes.config.json` holds;
+- a file of `edits` does not exist in the repository, or is outside it;
+- an `unchanged` type is also an extension point, or sits in a file of `edits`;
+- its `id` is not lowercase letters, digits and `-`, or another scenario of the file has the same `id`;
+- a field has another shape than the field table of `MODEL.md` gives, for example a `kind` that «Type» does not list.
+
+The file also fails when the `repo` of the config is not the `repo` of the model.
+With no violation, the script writes `<out>/<repo-name>.scenarios.json`: the scenarios, and the `layer` and the `part` of each added box.
+The folders of the config give them, as they give the layer and the part of a code type in `merge.mjs`.
+A file that is missing or is not JSON gives one `error:` line on stderr and exit 1. A wrong argument count gives the usage line and exit 2.
+
+`fixtures/mini.scenarios.json` is a good scenario file for `fixtures/mini.model.json`.
+`fixtures/mini-repo/` is its repository root: the config and the one file that the scenarios edit.
+
+```sh
+node scenarios.mjs fixtures/mini.scenarios.json fixtures/mini.model.json fixtures/mini-repo /tmp/scenarios   # exit 0
+```
+
 ## Tests
 
 `node --test 'test/*.test.mjs'` in `tools/drawio-clases/` runs the tests of `test/`. They use Node built-ins only and need no install step.
@@ -321,6 +358,7 @@ Then open `http://127.0.0.1:8000/`.
 
 The workflow `.github/workflows/class-diagram-site.yml` publishes the page to GitHub Pages at <https://hexablock-suite.github.io/.github/>.
 It clones `hexablock-api` and `hexablock-app` at their `main`, runs `merge.mjs` on each one, builds the page and deploys it.
+After `merge.mjs`, it runs `scenarios.mjs` on each product that has `docs/architecture/scenarios.json`.
 No product repository commits its model, so the site always shows the code of `main` at the time of the build.
 
 | Start | When |
@@ -330,7 +368,7 @@ No product repository commits its model, so the site always shows the code of `m
 | «Run workflow» | by hand, in the Actions tab or with `gh workflow run class-diagram-site.yml` |
 
 A push to a product repository cannot start a workflow of this repository. After a product merge, the site is up to date at the next scheduled run, or at once with «Run workflow».
-A violation in a product model stops the build, and the site keeps its last good version.
+A violation in a product model or in a scenario file stops the build, and the site keeps its last good version.
 The Pages source of this repository must be «GitHub Actions» (Settings > Pages).
 
 ### Glyph table
