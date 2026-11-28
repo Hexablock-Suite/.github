@@ -313,6 +313,119 @@ test('previous behavior: a function of another file stays unread, through a name
   assert.deepEqual(c.edges.filter((e) => e.from === 'Caller'), []);
 });
 
+// The files copy the credential limits of hexablock-api (#224 there): a Range of CharacterCount in a top-level const.
+const rangeFiles = {
+  'src/domain/shared/ordered.ts': 'export interface Ordered<T> {\n  isAfter(other: T): boolean;\n}\n',
+  'src/domain/shared/range.ts': [
+    "import type { Ordered } from './ordered';",
+    '',
+    'export class Range<T extends Ordered<T>> {',
+    '  private constructor(private readonly min: T, private readonly max: T) {}',
+    '  static of<T extends Ordered<T>>(min: T, max: T): Range<T> {',
+    '    return new Range(min, max);',
+    '  }',
+    '  contains(value: T): boolean {',
+    '    return !this.min.isAfter(value) && !value.isAfter(this.max);',
+    '  }',
+    '  isExceededBy(value: T): boolean {',
+    '    return value.isAfter(this.max);',
+    '  }',
+    '}',
+    '',
+  ].join('\n'),
+  'src/domain/user/character-count.ts': [
+    "import type { Ordered } from '../shared/ordered';",
+    '',
+    'export class CharacterCount implements Ordered<CharacterCount> {',
+    '  private constructor(private readonly n: number) {}',
+    '  static ofText(text: string): CharacterCount {',
+    '    return new CharacterCount([...text].length);',
+    '  }',
+    '  isAfter(other: CharacterCount): boolean {',
+    '    return this.n > other.n;',
+    '  }',
+    '}',
+    '',
+  ].join('\n'),
+};
+
+test('#224: a value use of a top-level const, of the same file or imported, uses the model types of its value', needsTypeScript, () => {
+  const repo = miniRepo({
+    ...rangeFiles,
+    'src/domain/user/password.ts': [
+      "import { Range } from '../shared/range';",
+      "import { CharacterCount } from './character-count';",
+      '',
+      "export const PASSWORD_LENGTH = Range.of(CharacterCount.ofText('12345678'), CharacterCount.ofText('x'.repeat(128)));",
+      '',
+      'export class Password {',
+      '  private constructor(private readonly text: string) {}',
+      '  static create(raw: string): Password | null {',
+      '    return PASSWORD_LENGTH.contains(CharacterCount.ofText(raw)) ? new Password(raw) : null;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+    'src/domain/user/password-attempt.ts': [
+      "import { CharacterCount } from './character-count';",
+      "import { PASSWORD_LENGTH } from './password';",
+      "import * as limits from './password';",
+      '',
+      'export class PasswordAttempt {',
+      '  constructor(private readonly typed: string) {}',
+      '  isLongerThanAnyPassword(): boolean {',
+      '    return PASSWORD_LENGTH.isExceededBy(CharacterCount.ofText(this.typed));',
+      '  }',
+      '  fits(): boolean {',
+      '    return limits.PASSWORD_LENGTH.contains(CharacterCount.ofText(this.typed));',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  // The Range line comes from the const. The CharacterCount line was there before.
+  assert.deepEqual(usesFrom(c, 'Password'), [
+    { to: 'CharacterCount', label: 'create()', viaAttr: false, multiplicity: null },
+    { to: 'Range', label: 'create()', viaAttr: false, multiplicity: null },
+  ]);
+  assert.deepEqual(usesFrom(c, 'PasswordAttempt'), [
+    { to: 'CharacterCount', label: 'isLongerThanAnyPassword(), fits()', viaAttr: false, multiplicity: null },
+    { to: 'Range', label: 'isLongerThanAnyPassword(), fits()', viaAttr: false, multiplicity: null },
+  ]);
+  // A const that holds no object literal stays no model type.
+  assert.deepEqual(c.types.map((t) => t.id).sort(), ['CharacterCount', 'Ordered', 'Password', 'PasswordAttempt', 'Range']);
+});
+
+test('previous behavior: an imported const that holds a function stays unread, and a typeof query of a const draws no line', needsTypeScript, () => {
+  const repo = miniRepo({
+    ...rangeFiles,
+    'src/domain/user/limits.ts': [
+      "import { Range } from '../shared/range';",
+      "import { CharacterCount } from './character-count';",
+      '',
+      "export const lengthOf = (text: string) => Range.of(CharacterCount.ofText(text), CharacterCount.ofText(text));",
+      "export const NAME_LENGTH = Range.of(CharacterCount.ofText('abc'), CharacterCount.ofText('abcdef'));",
+      '',
+    ].join('\n'),
+    'src/domain/user/checker.ts': [
+      "import { lengthOf, NAME_LENGTH } from './limits';",
+      '',
+      'export class Checker {',
+      '  run(text: string): boolean {',
+      '    return lengthOf(text) !== null;',
+      '  }',
+      '  same(other: typeof NAME_LENGTH): boolean {',
+      '    return other !== null;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const c = extract(repo);
+  assert.deepEqual(c.edges.filter((e) => e.from === 'Checker'), []);
+});
+
 test('A2: an exported function component of a .tsx file of src/ is a code type of kind component, with its props as attributes', needsTypeScript, () => {
   const repo = miniRepo({
     'src/infrastructure/board-layout.ts': 'export interface BoardLayout {\n  cellSize(): number;\n}\n',

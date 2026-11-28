@@ -94,6 +94,7 @@ The layout keeps order only, because a fixed position breaks when a new class ar
   Its props are its attributes, also a prop in method syntax such as `onPick(at: Coord): void`. Its body and the default values of its props give its uses.
 - A member uses a model type when its types, its `new` calls, its values or the inferred types of its local variables name that type.
 - A use inside a top-level function of the same file counts for the member that names the function in a call, a JSX tag, or a reference to the function as a value, such as the shorthand property `{ helper }`. A `typeof` type query does not read the function. The tool does not follow a function of another file.
+- A value use of a top-level `const` that holds a value and no function, in the same file or imported, uses the model types of the type of that value. `PASSWORD_LENGTH.contains(…)` with `PASSWORD_LENGTH = Range.of(…)` uses `Range` and `CharacterCount`. A `typeof` type query of the `const` gives no use.
 - `views.mjs` reads the class views. A box or a line that no code type or code use has becomes planned.
 
 `merge.mjs` keeps a `const` or a `component` only when a view draws it. It places each code type by the folders of the config.

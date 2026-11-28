@@ -11,6 +11,8 @@
 // A use inside a top-level function of the same file counts for the member that names that function:
 // in a call, a JSX tag, or a reference to the function as a value. A `typeof` type query reads no function.
 // A function of another file stays unread.
+// A value use of a top-level `const` that holds no function, of the same file or imported, uses the model types
+// of the type of its value: `PASSWORD_LENGTH.contains(…)` uses Range and CharacterCount.
 // It writes the code half of the class model: the types, their members and the uses between them.
 // `merge.mjs` joins this output with the class views. It also drops the local types, the
 // `const` objects and the components that no view draws.
@@ -192,6 +194,10 @@ export function extract(repoArg) {
     const st = d.parent.parent;
     return ts.isVariableStatement(st) && ts.isSourceFile(st.parent) ? functionOf(d.initializer) : null;
   };
+  // A top-level `const` that holds a value and no function, else null.
+  const isModuleValue = (d) =>
+    ts.isVariableDeclaration(d) && !!(d.parent.flags & ts.NodeFlags.Const) && ts.isVariableStatement(d.parent.parent) &&
+    ts.isSourceFile(d.parent.parent.parent) && !functionOf(d.initializer);
 
   // Collect the model types that a subtree names. Each hit is { id, isNew }.
   // A type reference, a value identifier, a `new` and the inferred type of a local variable count as uses.
@@ -199,6 +205,7 @@ export function extract(repoArg) {
   // A `typeof` type query reads no function.
   // The function is not a model type. The walk reads its parameter types, its return type and its body.
   // An imported function stays unread. Each function is read once, so a recursive call stops the walk.
+  // A value use of a top-level `const` that holds no function, of the same file or imported, uses the model types of its type.
   const refsIn = (node) => {
     const out = [];
     if (!node) return out;
@@ -206,9 +213,14 @@ export function extract(repoArg) {
     const follow = (n) => {
       // A shorthand property `{ helper }` names the value `helper`, not the property.
       const short = ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n;
-      const sym = short ? checker.getShorthandAssignmentValueSymbol(n.parent) : checker.getSymbolAtLocation(n);
-      if (!sym || sym.flags & ts.SymbolFlags.Alias) return;
+      let sym = short ? checker.getShorthandAssignmentValueSymbol(n.parent) : checker.getSymbolAtLocation(n);
+      if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+      if (!sym) return;
       for (const d of sym.declarations ?? []) {
+        if (!decls.has(d) && isModuleValue(d)) {
+          for (const id of refsOfType(checker.getTypeAtLocation(d.name))) out.push({ id, isNew: false });
+          continue;
+        }
         const fn = d.getSourceFile() === n.getSourceFile() && !decls.has(d) ? moduleFunctionOf(d) : null;
         if (!fn || read.has(fn)) continue;
         read.add(fn);
