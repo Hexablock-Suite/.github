@@ -93,7 +93,9 @@ The layout keeps order only, because a fixed position breaks when a new class ar
 - A function component is a code type of kind `component`. In `src/`, it is a function, or a `const` that holds a function, with a PascalCase name in a `.tsx` file, that the file exports with `export`, `export default Name;` or `export { Name }`. In `app/`, it is the default export of each route file, for example `export default function GameScreen()`.
   Its props are its attributes, also a prop in method syntax such as `onPick(at: Coord): void`. Its body and the default values of its props give its uses.
 - A member uses a model type when its types, its `new` calls, its values or the inferred types of its local variables name that type.
-- A use inside a top-level function of the same file counts for the member that names the function in a call, a JSX tag, or a reference to the function as a value, such as the shorthand property `{ helper }`. A `typeof` type query does not read the function. The tool does not follow a function of another file.
+- A use inside a top-level function of the same file counts for the member that names the function in a call, a JSX tag, or a reference to the function as a value, such as the shorthand property `{ helper }`. A `typeof` type query does not read the function.
+- An object literal with a method is a receiver object, such as `{ receive(value) { … } }`. It uses the model types of its contextual type: the interface that it implements. This holds in the member, in a top-level function of the same file and in a top-level function of another file.
+- A top-level function of another file of `src/` or `app/` gives only its receiver objects, and the receiver objects of the functions that it calls. `receiveProgressOf(progress)` of a helper file gives `PlayerProgressReceiver` to the member that calls it. The tool reads no other use of a function of another file: its parameter types, its return type, its `new` calls and its values give no use.
 - A value use of a top-level `const` that holds a value and no function, in the same file or imported, uses the model types of the type of that value. `PASSWORD_LENGTH.contains(…)` with `PASSWORD_LENGTH = Range.of(…)` uses `Range` and `CharacterCount`. A `typeof` type query of the `const` gives no use.
 - `views.mjs` reads the class views. A box or a line that no code type or code use has becomes planned.
 
@@ -141,6 +143,7 @@ The tools use Node built-ins only. The page builder in `page/` is the one except
   A part page shows the types of its part in full.
   It also shows each type of another part that one of its lines touches, as a grey reference box with the name only.
   The eyebrow of that box names the page that details the type, for example `PAGE 2 · ENGINE`.
+  The reference box of a type with the stereotype `aspect` also shows `«aspect»` on its own line, between the eyebrow and the name. No other reference box shows a stereotype.
   The page draws every line between the types it shows.
 - Each page has a legend. The legend lists only the line kinds and box kinds that the page draws.
 
@@ -270,6 +273,7 @@ A file that is missing or is not JSON gives one `error:` line on stderr and exit
 
 `fixtures/mini-repo/docs/architecture/scenarios.json` is a good scenario file for `fixtures/mini.model.json`. It sits where a product repository keeps its scenario file.
 `fixtures/mini-repo/` is its repository root: the config and the two files that the scenarios edit. No type of the model sits in `src/main.ts`.
+The other files of `fixtures/mini-repo/src/` are the receiver case of `extract.mjs`: `src/adapters/received.ts` holds helpers that give receiver objects to the domain, as in `hexablock-api`. A test of `test/merge.test.mjs` extracts the folder and checks the uses of `ProgressRowMapper` and `ProgressStore`.
 
 ```sh
 node scenarios.mjs fixtures/mini-repo/docs/architecture/scenarios.json fixtures/mini.model.json fixtures/mini-repo /tmp/scenarios   # exit 0
