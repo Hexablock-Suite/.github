@@ -10,7 +10,9 @@
 // PascalCase name in a .tsx file. In app/, it is the default export of each route file.
 // A use inside a top-level function of the same file counts for the member that names that function:
 // in a call, a JSX tag, or a reference to the function as a value. A `typeof` type query reads no function.
-// A function of another file stays unread.
+// An object literal with a method is a receiver object: it uses the model types of its contextual type,
+// that is the interface that it implements. A top-level function of another file gives only its receiver objects,
+// and those of the functions that it calls. Its other uses stay unread.
 // A value use of a top-level `const` that holds no function, of the same file or imported, uses the model types
 // of the type of its value: `PASSWORD_LENGTH.contains(…)` uses Range and CharacterCount.
 // It writes the code half of the class model: the types, their members and the uses between them.
@@ -204,13 +206,33 @@ export function extract(repoArg) {
   // A call, a JSX tag or a reference as a value to a top-level function of the same file brings the uses of that function.
   // A `typeof` type query reads no function.
   // The function is not a model type. The walk reads its parameter types, its return type and its body.
-  // An imported function stays unread. Each function is read once, so a recursive call stops the walk.
+  // An object literal with a method, such as `{ receive(v) { … } }`, uses the model types of its contextual type.
+  // A top-level function of another source file gives only these receiver objects. The walk reads them in its body
+  // and in the functions that it calls. Its other uses stay unread.
+  // Each function is read once in each mode, so a recursive call stops the walk.
   // A value use of a top-level `const` that holds no function, of the same file or imported, uses the model types of its type.
   const refsIn = (node) => {
     const out = [];
     if (!node) return out;
-    const read = new Set();
-    const follow = (n) => {
+    const read = new Set(); // the functions read in full
+    const readForReceivers = new Set(); // the functions read for their receiver objects only
+    // An object literal with a method implements its contextual type, so it uses the model types of that type.
+    const receiverUse = (n) => {
+      if (!ts.isObjectLiteralExpression(n) || !n.properties.some((p) => ts.isMethodDeclaration(p))) return;
+      for (const id of refsOfType(checker.getContextualType(n))) out.push({ id, isNew: false });
+    };
+    // Read only the receiver objects of a subtree, and of the top-level functions that it calls.
+    const receiversIn = (n) => {
+      if (!n) return;
+      receiverUse(n);
+      if (ts.isIdentifier(n)) {
+        if (!targetOf(n)) follow(n, true);
+        return;
+      }
+      ts.forEachChild(n, receiversIn);
+    };
+    // receiversOnly: the walk is inside a function of another file, so it reads receiver objects only.
+    const follow = (n, receiversOnly = false) => {
       // A shorthand property `{ helper }` names the value `helper`, not the property.
       const short = ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n;
       let sym = short ? checker.getShorthandAssignmentValueSymbol(n.parent) : checker.getSymbolAtLocation(n);
@@ -218,11 +240,18 @@ export function extract(repoArg) {
       if (!sym) return;
       for (const d of sym.declarations ?? []) {
         if (!decls.has(d) && isModuleValue(d)) {
-          for (const id of refsOfType(checker.getTypeAtLocation(d.name))) out.push({ id, isNew: false });
+          if (!receiversOnly) for (const id of refsOfType(checker.getTypeAtLocation(d.name))) out.push({ id, isNew: false });
           continue;
         }
-        const fn = d.getSourceFile() === n.getSourceFile() && !decls.has(d) ? moduleFunctionOf(d) : null;
+        const sameFile = d.getSourceFile() === n.getSourceFile();
+        const fn = !decls.has(d) && (sameFile || isSource(d.getSourceFile().fileName)) ? moduleFunctionOf(d) : null;
         if (!fn || read.has(fn)) continue;
+        if (receiversOnly || !sameFile) {
+          if (readForReceivers.has(fn)) continue;
+          readForReceivers.add(fn);
+          receiversIn(fn.body);
+          continue;
+        }
         read.add(fn);
         for (const p of fn.parameters) {
           visit(p.type);
@@ -260,6 +289,7 @@ export function extract(repoArg) {
         if (!id) visit(e);
         return;
       }
+      receiverUse(n);
       if (ts.isVariableDeclaration(n) && !n.type) {
         // A local variable without an annotation uses the type that the checker infers for it.
         for (const id of refsOfType(checker.getTypeAtLocation(n.name))) out.push({ id, isNew: false });

@@ -465,3 +465,27 @@ test('A2: gen.mjs draws a component with «component» and its props, and check.
   const c = run('check.mjs', [out, modelFile]);
   assert.equal(c.status, 0, c.stdout);
 });
+
+test('#182: a reference box of an aspect class carries «aspect» between its eyebrow and its name', () => {
+  const model = JSON.parse(readFileSync(MINI, 'utf8'));
+  model.types.find((t) => t.id === 'LoggingAspect').stereotypes = ['aspect'];
+  // A line from the shell part puts LoggingAspect on the page of that part as a reference box.
+  model.edges.push({ from: 'PlayController', to: 'LoggingAspect', kind: 'use', label: 'play()', pattern: null, status: 'code', views: [] });
+  const file = writeJson('aspect.model.json', model);
+  const out = tmp('aspect.drawio');
+  const r = run('gen.mjs', [file, out]);
+  assert.equal(r.status, 0, r.stderr);
+  const refs = readPages(parseXml(readFileSync(out, 'utf8')))
+    .flatMap((p) => [...p.cells.values()])
+    .filter((cell) => cell.data.role === 'ref');
+  const textOf = (cell) => lines(labelText(cell.label));
+  const aspect = refs.filter((cell) => cell.data.typeId === 'LoggingAspect');
+  assert.equal(aspect.length, 1);
+  assert.deepEqual(textOf(aspect[0]), ['PAGE 2 · CORE', '«aspect»', 'LoggingAspect']);
+  // Every other reference box keeps its eyebrow and its name only.
+  const others = refs.filter((cell) => cell.data.typeId !== 'LoggingAspect');
+  assert.ok(others.length > 0);
+  for (const cell of others) assert.equal(textOf(cell).length, 2, cell.id);
+  const c = run('check.mjs', [out, file]);
+  assert.equal(c.status, 0, c.stdout);
+});

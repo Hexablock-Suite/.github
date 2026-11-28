@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -311,6 +311,34 @@ test('previous behavior: a function of another file stays unread, through a name
   });
   const c = extract(repo);
   assert.deepEqual(c.edges.filter((e) => e.from === 'Caller'), []);
+});
+
+// The files of a directory, by repository-relative path.
+const filesOf = (dir, base = dir) =>
+  Object.fromEntries(
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = path.join(dir, e.name);
+      return e.isDirectory() ? Object.entries(filesOf(full, base)) : [[path.relative(base, full).split(path.sep).join('/'), readFileSync(full, 'utf8')]];
+    }),
+  );
+const MINI_REPO = fileURLToPath(new URL('../fixtures/mini-repo', import.meta.url));
+
+test('#196: a helper of another file that gives a receiver object uses its receiver interface for the caller', needsTypeScript, () => {
+  const c = extract(miniRepo(filesOf(MINI_REPO)));
+  // The member of a const object reaches both receivers through receiveProgressOf() and receiveKeyOf().
+  // Stamp and the parameter types of the helpers give no use.
+  assert.deepEqual(usesFrom(c, 'ProgressRowMapper'), [
+    { to: 'KeyReceiver', label: 'toRow()', viaAttr: false, multiplicity: null },
+    { to: 'Progress', label: 'toRow()', viaAttr: false, multiplicity: null },
+    { to: 'ProgressReceiver', label: 'toRow()', viaAttr: false, multiplicity: null },
+  ]);
+  // find() reaches the helper through readRow() of its own file. scoreOf() gives its own receiver object.
+  assert.deepEqual(usesFrom(c, 'ProgressStore'), [
+    { to: 'KeyReceiver', label: 'find(), lock()', viaAttr: false, multiplicity: null },
+    { to: 'Progress', label: 'scoreOf()', viaAttr: false, multiplicity: null },
+    { to: 'ProgressKey', label: 'find(), lock()', viaAttr: false, multiplicity: null },
+    { to: 'ProgressReceiver', label: 'scoreOf()', viaAttr: false, multiplicity: null },
+  ]);
 });
 
 // The files copy the credential limits of hexablock-api (#224 there): a Range of CharacterCount in a top-level const.

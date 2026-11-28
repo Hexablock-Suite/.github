@@ -264,12 +264,16 @@ function classBox(t) {
 }
 
 // refBox builds the name-only box of a type that another page details.
+// The box of an aspect class also shows «aspect» on its own line, between the eyebrow and the name.
+// Every other reference box shows its eyebrow and its name only.
 function refBox(t, eyebrow) {
+  const mark = (t.stereotypes ?? []).includes('aspect') ? line('«aspect»', { size: SMALL }) : null;
   const label =
     `<div style="font-size:9px;line-height:12px;letter-spacing:0.5px;color:#4b5563;">${escHtml(eyebrow)}</div>` +
+    (mark ? `<div style="line-height:${LINE}px;">${mark.html}</div>` : '') +
     `<div style="line-height:${LINE}px;"><b>${escHtml(t.name)}</b></div>`;
-  const w = Math.max(textWidth(eyebrow, 9) + eyebrow.length * 0.5, textWidth(t.name, FONT, true)) + 28;
-  return { label, w: Math.ceil(Math.max(110, w)), h: 46, tparams: null };
+  const w = Math.max(textWidth(eyebrow, 9) + eyebrow.length * 0.5, textWidth(t.name, FONT, true), mark?.width ?? 0) + 28;
+  return { label, w: Math.ceil(Math.max(110, w)), h: mark ? 46 + LINE : 46, tparams: null };
 }
 
 // ---------------------------------------------------------------- layout
